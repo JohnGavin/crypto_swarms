@@ -56,8 +56,8 @@ else:
     serializer = ^json
   )
 
-  -- 4. Quarto report (disabled until tlang filter works in sandbox)
-  -- report = node(script = "src/report.qmd", runtime = Quarto)
+  -- 4. Quarto report
+  report = node(script = "src/report.qmd", runtime = Quarto)
 }
 
 populate_pipeline(p, build = true, verbose = 1)

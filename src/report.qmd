@@ -8,17 +8,24 @@ filters:
 ## Latest Prices
 
 ```{t}
-read_node("prices")
+#| label: prices
+node_p = read_node("prices")
+print(node_p.path)
 ```
 
 ## Analysis
 
 ```{t}
-read_node("analysis")
+#| label: analysis
+node_a = read_node("analysis")
+print(node_a.path)
 ```
 
 ## Alerts
 
 ```{t}
-read_node("alerts")
+#| label: alerts
+node_al = read_node("alerts")
+alert_text = t_read_json(node_al.path)
+print(alert_text)
 ```
