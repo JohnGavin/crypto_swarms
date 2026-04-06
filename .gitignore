@@ -1,0 +1,5 @@
+_pipeline/
+pipeline-output/
+_extensions/
+.DS_Store
+*.html

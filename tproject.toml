@@ -1,0 +1,18 @@
+[project]
+name = "crypto_alert_t"
+description = "Crypto price alerts: Python fetches via Solana APIs, R analyses with dplyr/arrow, Python alerts via Swarms"
+
+[dependencies]
+
+[r-dependencies]
+packages = ["dplyr", "arrow", "slider"]
+
+[py-dependencies]
+version = "python313"
+packages = ["httpx", "pandas", "pyarrow"]
+
+[additional-tools]
+packages = ["quarto"]
+
+[t]
+min_version = "0.51.2"
