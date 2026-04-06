@@ -1,50 +1,22 @@
 -- crypto_alert_t: Phase 1 pipeline
 --
--- Architecture: pyn (fetch) -> rn (analyse) -> pyn (alert) -> Quarto (report)
--- Data flows via Arrow serialization between nodes. No intermediate files.
+-- Prerequisites: Fetch prices first (outside Nix sandbox — needs network):
+--   python scripts/fetch_prices.py
+--
+-- Architecture: T (read CSV) -> rn (analyse) -> pyn (alert) -> Quarto (report)
+-- Nix sandbox has no network access, so data fetch is a pre-step.
 
 p = pipeline {
 
-  -- 1. Python: fetch token prices from Jupiter aggregator API
-  --    Output: pandas DataFrame with columns [token, price_usd, fetched_at]
-  prices = pyn(
-    command = <{
-import httpx
-import pandas as pd
-from datetime import datetime, timezone
-
-# SOL and common SPL tokens
-TOKEN_IDS = {
-    "So11111111111111111111111111111111111111112": "SOL",
-    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "USDC",
-    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": "USDT",
-}
-
-resp = httpx.get(
-    "https://api.jup.ag/price/v2",
-    params={"ids": ",".join(TOKEN_IDS.keys())},
-    timeout=30,
-)
-resp.raise_for_status()
-data = resp.json().get("data", {})
-
-rows = []
-now = datetime.now(timezone.utc).isoformat()
-for mint, info in data.items():
-    rows.append({
-        "token": TOKEN_IDS.get(mint, mint[:8]),
-        "mint": mint,
-        "price_usd": float(info["price"]),
-        "fetched_at": now,
-    })
-
-prices = pd.DataFrame(rows)
-    }>,
+  -- 1. T: read pre-fetched prices CSV
+  --    Written by scripts/fetch_prices.py (run before `t run`)
+  prices = node(
+    command = read_csv("data/latest_prices.csv", separator = "|"),
     serializer = ^arrow
   )
 
   -- 2. R: analyse prices with dplyr
-  --    Receives `prices` as an Arrow table (auto-deserialized)
+  --    Receives `prices` as Arrow table (auto-deserialized)
   --    Computes summary stats and simple alert triggers
   analysis = rn(
     command = <{
@@ -52,11 +24,9 @@ prices = pd.DataFrame(rows)
 
       analysis <- prices |>
         mutate(
-          # Simple alert thresholds for Phase 1
-          # Phase 2 will add moving averages via slider + targets caching
           is_stablecoin = token %in% c("USDC", "USDT"),
           depeg_alert = is_stablecoin & abs(price_usd - 1.0) > 0.005,
-          trigger_alert = depeg_alert  # Extend in Phase 2
+          trigger_alert = depeg_alert
         )
     }>,
     deserializer = ^arrow,
@@ -72,22 +42,22 @@ from datetime import datetime, timezone
 triggered = analysis[analysis["trigger_alert"] == True]
 
 if len(triggered) > 0:
-    lines = [f"ALERT at {datetime.now(timezone.utc).strftime('%H:%M UTC')}:"]
+    lines = ["ALERT at " + datetime.now(timezone.utc).strftime("%H:%M UTC") + ":"]
     for _, row in triggered.iterrows():
-        lines.append(
-            f"  {row['token']}: ${row['price_usd']:.4f} "
-            f"(depeg: {abs(row['price_usd'] - 1.0):.4f})"
+        line = "  {}: USD {:.4f} (depeg: {:.4f})".format(
+            row["token"], row["price_usd"], abs(row["price_usd"] - 1.0)
         )
+        lines.append(line)
     alerts = "\n".join(lines)
 else:
-    alerts = f"No alerts at {datetime.now(timezone.utc).strftime('%H:%M UTC')}. All stable."
+    alerts = "No alerts at " + datetime.now(timezone.utc).strftime("%H:%M UTC") + ". All stable."
     }>,
     deserializer = ^arrow,
     serializer = ^json
   )
 
-  -- 4. Quarto report
-  report = node(script = "src/report.qmd", runtime = Quarto)
+  -- 4. Quarto report (disabled until tlang filter works in sandbox)
+  -- report = node(script = "src/report.qmd", runtime = Quarto)
 }
 
 populate_pipeline(p, build = true, verbose = 1)

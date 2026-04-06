@@ -3,3 +3,4 @@ pipeline-output/
 _extensions/
 .DS_Store
 *.html
+data/latest_prices.csv

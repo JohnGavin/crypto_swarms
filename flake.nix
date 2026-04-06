@@ -30,7 +30,7 @@
           ];
         };
 
-        # Python environment
+        # Python environment (httpx for fetch script + pandas/pyarrow for pipeline)
         py-env = pkgs.python313.withPackages (ps: with ps; [
           httpx
           pandas

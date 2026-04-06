@@ -9,7 +9,7 @@ packages = ["dplyr", "arrow", "slider"]
 
 [py-dependencies]
 version = "python313"
-packages = ["httpx", "pandas", "pyarrow"]
+packages = ["pandas", "pyarrow"]
 
 [additional-tools]
 packages = ["quarto"]
