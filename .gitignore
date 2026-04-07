@@ -6,3 +6,4 @@ pipeline-output/
 .DS_Store
 *.html
 data/latest_prices.csv
+data/price_history.csv

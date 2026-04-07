@@ -27,14 +27,18 @@
             dplyr
             arrow
             slider
+            ggplot2
+            jsonlite
+            knitr
           ];
         };
 
-        # Python environment (httpx for fetch script + pandas/pyarrow for pipeline)
+        # Python environment (httpx for fetch script + pandas/pyarrow/plotly for pipeline)
         py-env = pkgs.python313.withPackages (ps: with ps; [
           httpx
           pandas
           pyarrow
+          plotly
         ]);
 
         # Additional tools

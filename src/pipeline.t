@@ -15,6 +15,12 @@ p = pipeline {
     serializer = ^arrow
   )
 
+  -- 1b. T: read accumulated price history (appended by fetch_prices.py)
+  history = node(
+    command = read_csv("data/price_history.csv", separator = "|"),
+    serializer = ^arrow
+  )
+
   -- 2. R: analyse prices with dplyr
   --    Receives `prices` as Arrow table (auto-deserialized)
   --    Computes summary stats and simple alert triggers

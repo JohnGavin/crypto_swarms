@@ -5,11 +5,11 @@ description = "Crypto price alerts: Python fetches via Solana APIs, R analyses w
 [dependencies]
 
 [r-dependencies]
-packages = ["dplyr", "arrow", "slider"]
+packages = ["dplyr", "arrow", "slider", "ggplot2", "jsonlite", "knitr"]
 
 [py-dependencies]
 version = "python313"
-packages = ["pandas", "pyarrow"]
+packages = ["pandas", "pyarrow", "plotly"]
 
 [additional-tools]
 packages = ["quarto"]

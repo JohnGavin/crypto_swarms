@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Fetch token prices and write to data/latest_prices.csv.
+"""Fetch token prices and write to data/latest_prices.csv + append to data/price_history.csv.
 
-Tries Jupiter API (Solana-native, keyless 0.5 RPS) first,
+Tries Jupiter API v3 (Solana-native, keyless 0.5 RPS) first,
 falls back to CoinGecko (free, no auth).
 
 Run OUTSIDE the T pipeline (before `t run`), because Nix sandbox has no network.
 
 Usage:
-    python scripts/fetch_prices.py
-    # or from nix shell:
     nix develop --command python3 scripts/fetch_prices.py
 """
 
@@ -18,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Jupiter: Solana mint addresses
-# Per https://dev.jup.ag/docs/portal/setup — keyless, 0.5 RPS
+# Per https://dev.jup.ag/docs/ — keyless, 0.5 RPS, v3 endpoint
 JUPITER_TOKENS = {
     "So11111111111111111111111111111111111111112": "SOL",
     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "USDC",
@@ -34,14 +32,15 @@ COINGECKO_TOKENS = {
 
 
 def fetch_jupiter():
-    """Fetch from Jupiter Price API v2 (keyless, 0.5 RPS)."""
+    """Fetch from Jupiter Price API v3 (keyless, 0.5 RPS)."""
     resp = httpx.get(
-        "https://api.jup.ag/price/v2",
+        "https://api.jup.ag/price/v3",
         params={"ids": ",".join(JUPITER_TOKENS.keys())},
         timeout=30,
     )
     resp.raise_for_status()
-    data = resp.json().get("data", {})
+    # v3 response shape: {mint: {usdPrice, blockId, decimals, priceChange24h, liquidity, createdAt}}
+    data = resp.json()
     if not data:
         raise ValueError("Jupiter returned empty data")
 
@@ -51,7 +50,10 @@ def fetch_jupiter():
         rows.append({
             "token": JUPITER_TOKENS.get(mint, mint[:8]),
             "source": "jupiter",
-            "price_usd": float(info["price"]),
+            "price_usd": float(info["usdPrice"]),
+            "price_change_24h": info.get("priceChange24h"),
+            "liquidity": info.get("liquidity"),
+            "block_id": info.get("blockId"),
             "fetched_at": now,
         })
     return pd.DataFrame(rows)
@@ -74,6 +76,9 @@ def fetch_coingecko():
             "token": ticker,
             "source": "coingecko",
             "price_usd": data[cg_id]["usd"],
+            "price_change_24h": None,
+            "liquidity": None,
+            "block_id": None,
             "fetched_at": now,
         })
     return pd.DataFrame(rows)
@@ -82,14 +87,23 @@ def fetch_coingecko():
 # Try Jupiter first, fall back to CoinGecko
 try:
     df = fetch_jupiter()
-    print("Source: Jupiter API")
+    print("Source: Jupiter API v3")
 except Exception as e:
     print("Jupiter failed ({}), falling back to CoinGecko".format(e))
     df = fetch_coingecko()
     print("Source: CoinGecko API")
 
+# Write latest (overwrite)
 out = Path("data/latest_prices.csv")
 out.parent.mkdir(exist_ok=True)
 df.to_csv(out, index=False, sep="|")
 print("Wrote {} rows to {}".format(len(df), out))
+
+# Append to history (create with header if missing)
+history = Path("data/price_history.csv")
+write_header = not history.exists()
+df.to_csv(history, index=False, sep="|", mode="a", header=write_header)
+n_history = sum(1 for _ in open(history)) - 1  # minus header
+print("History: {} total rows in {}".format(n_history, history))
+
 print(df.to_string(index=False))
