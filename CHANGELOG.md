@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-04-07
+
+### Completed
+- **Jupiter API v3** (#2): endpoint was v2 (404), now v3 with `usdPrice`, `priceChange24h`, `liquidity`, `blockId` fields
+- **Historical price accumulation** (#3): appends to `data/price_history.csv`; new `history` node in pipeline
+- **Richer Quarto report** (#4): alert callout, prices table, depeg analysis, ggplot2 history chart (5/5 nodes)
+- **Phase 2 architecture notes** on issue #1: targets+crew caching trade-off, Swarms network options (`__noChroot` vs post-step)
+- Dependencies added: `ggplot2`, `jsonlite`, `knitr` (R); `plotly` (Python)
+
+### Failed Approaches
+- Tried `read_node_artifact()` helper function in report.qmd. Failed because T auto-detects dependencies by scanning for literal `read_node("X")` calls — a wrapper function hides the pattern. Fix: call `read_node("X")` directly and assign to a variable (T sed-replaces it with the path string).
+- Considered `__noChroot = true` for Swarms network access. No current T flag to set it on generated derivations. Deferred as future upstream feature request.
+
+### Accuracy / Metrics
+- Pipeline nodes: 4 → 5 (added `history`)
+- Report sections: 3 (paths only) → 4 (alert, prices table, analysis, history chart)
+- GitHub issues: 1 open → 1 open + 3 closed (all Phase 1 tasks done)
+
+### Known Limitations
+- ggplot2 chart is static (not plotly). User's Shiny UI rule requires range slider + 3-month default; deferred to Phase 2 Shiny dashboard.
+- No deduplication on `(token, fetched_at)` in history (multiple runs at same second produce dupes)
+- `crew` + `targets` inside `rn` nodes breaks Nix hermeticity for caching
+- Swarms SDK integration pending (post-step script approach)
+
 ## 2026-04-06
 
 ### Completed
