@@ -30,6 +30,7 @@
             ggplot2
             jsonlite
             knitr
+            reticulate
           ];
         };
 

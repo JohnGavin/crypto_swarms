@@ -22,3 +22,7 @@ if [ -f pipeline-output/report/artifact/report.html ]; then
   echo "--- Report ---"
   echo "Open: pipeline-output/report/artifact/report.html"
 fi
+
+echo ""
+echo ">>> Swarms agent post-step (dry run)..."
+python3 scripts/swarms_agent.py

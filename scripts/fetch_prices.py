@@ -99,11 +99,20 @@ out.parent.mkdir(exist_ok=True)
 df.to_csv(out, index=False, sep="|")
 print("Wrote {} rows to {}".format(len(df), out))
 
-# Append to history (create with header if missing)
+# Append to history, then dedupe on (token, fetched_at)
 history = Path("data/price_history.csv")
 write_header = not history.exists()
 df.to_csv(history, index=False, sep="|", mode="a", header=write_header)
-n_history = sum(1 for _ in open(history)) - 1  # minus header
-print("History: {} total rows in {}".format(n_history, history))
+
+# Read back, dedupe, rewrite (keeps last occurrence per token+timestamp)
+hist_df = pd.read_csv(history, sep="|")
+before = len(hist_df)
+hist_df = hist_df.drop_duplicates(subset=["token", "fetched_at"], keep="last")
+after = len(hist_df)
+if before != after:
+    hist_df.to_csv(history, index=False, sep="|")
+    print("History: {} rows ({} duplicates removed)".format(after, before - after))
+else:
+    print("History: {} total rows in {}".format(after, history))
 
 print(df.to_string(index=False))

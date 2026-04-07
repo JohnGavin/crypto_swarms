@@ -13,6 +13,13 @@ library(arrow)
 library(jsonlite)
 library(knitr)
 
+# Point reticulate at the Nix py-env (set by T's Quarto build via QUARTO_PYTHON)
+quarto_python <- Sys.getenv("QUARTO_PYTHON")
+if (nzchar(quarto_python)) {
+  Sys.setenv(RETICULATE_PYTHON = quarto_python)
+  reticulate::use_python(quarto_python, required = TRUE)
+}
+
 # T sed-replaces read_node("X") with '$T_NODE_X/artifact' (a path string).
 # Assign to a variable, then read the file from it. This also tells T about
 # the dependency so the report node depends on these upstream nodes.
@@ -83,30 +90,61 @@ cat(sprintf(
 ))
 ```
 
-```{r history-chart, echo=FALSE, fig.width=10, fig.height=6}
-library(ggplot2)
+```{r history-write, echo=FALSE}
+# Hand off Arrow-deserialized history to Python via parquet (next chunk reads it)
+arrow::write_parquet(history, "/tmp/crypto_history.parquet")
+```
 
-history_plot_df <- history |>
-  mutate(fetched_at = as.POSIXct(fetched_at, tz = "UTC")) |>
-  filter(fetched_at >= max(fetched_at) - as.difftime(90, units = "days"))
+```{python history-chart-build}
+#| echo: false
+import pandas as pd
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from datetime import datetime, timedelta, timezone
 
-if (nrow(history_plot_df) > length(unique(history_plot_df$token))) {
-  ggplot(history_plot_df, aes(x = fetched_at, y = price_usd, color = token)) +
-    geom_line() +
-    geom_point(size = 1) +
-    facet_wrap(~ token, scales = "free_y", ncol = 1) +
-    scale_y_continuous(labels = scales::label_dollar()) +
-    labs(
-      x = NULL,
-      y = "Price (USD)",
-      title = "Price history (last 90 days)",
-      caption = sprintf("%d observations | Tufte-style faceted view", nrow(history_plot_df))
-    ) +
-    theme_minimal() +
-    theme(legend.position = "none")
-} else {
-  cat("_Not enough history yet — run `fetch_prices.py` multiple times to accumulate data._")
-}
+hist = pd.read_parquet("/tmp/crypto_history.parquet")
+hist["fetched_at"] = pd.to_datetime(hist["fetched_at"], utc=True)
+hist = hist.sort_values("fetched_at")
+
+tokens = sorted(hist["token"].unique())
+fig = make_subplots(
+    rows=len(tokens), cols=1,
+    shared_xaxes=True,
+    subplot_titles=tokens,
+    vertical_spacing=0.05,
+)
+
+for i, tok in enumerate(tokens, start=1):
+    sub = hist[hist["token"] == tok]
+    fig.add_trace(
+        go.Scatter(
+            x=sub["fetched_at"], y=sub["price_usd"],
+            mode="lines+markers", name=tok,
+            line=dict(width=2), marker=dict(size=4),
+        ),
+        row=i, col=1,
+    )
+    fig.update_yaxes(title_text="USD", tickformat="$,.4f", row=i, col=1)
+
+# Default x-range: last 3 months (per user UI rule)
+end = hist["fetched_at"].max()
+start_3mo = end - timedelta(days=90)
+
+fig.update_xaxes(
+    rangeslider=dict(visible=True, thickness=0.05),
+    range=[start_3mo, end],
+    row=len(tokens), col=1,
+)
+
+fig.update_layout(
+    height=200 * len(tokens) + 100,
+    title_text="Price History (drag slider to zoom; default = last 3 months)",
+    showlegend=False,
+    margin=dict(l=40, r=20, t=60, b=40),
+    template="plotly_white",
+)
+
+fig
 ```
 
 ---
