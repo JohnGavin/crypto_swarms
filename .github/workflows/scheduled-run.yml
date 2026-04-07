@@ -1,0 +1,60 @@
+name: Scheduled Crypto Pipeline Run
+
+on:
+  schedule:
+    # Every 6 hours (UTC) - within Jupiter's 0.5 RPS keyless limit
+    - cron: '0 */6 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # to commit accumulated price_history.csv
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            substituters = https://cache.nixos.org https://rstats-on-nix.cachix.org
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= rstats-on-nix.cachix.org-1:vdiiVgocg6WeJrODIqdprZRUrhi1JzhBnXv7aWI6+F0=
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: rstats-on-nix
+
+      - name: Fetch prices (outside sandbox - needs network)
+        run: nix develop --command python3 scripts/fetch_prices.py
+
+      - name: Run T pipeline
+        run: nix develop --command t run src/pipeline.t
+
+      - name: Run Swarms agent (dry-run, no API key in CI)
+        run: nix develop --command python3 scripts/swarms_agent.py
+        env:
+          SWARMS_DRY_RUN: 'true'
+
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ github.run_number }}
+          path: pipeline-output/report/artifact/
+          retention-days: 30
+
+      - name: Commit accumulated price history
+        if: github.event_name == 'schedule'
+        run: |
+          # Force-add since data/price_history.csv is gitignored locally
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f data/price_history.csv
+          git diff --cached --quiet || git commit -m "chore: append price history (run #${{ github.run_number }})"
+          git push
