@@ -49,9 +49,67 @@ Current secrets expected:
 Security issues: open a **private security advisory** via GitHub, not a public issue:
 https://github.com/JohnGavin/crypto_swarms/security/advisories/new
 
+## Sensitive Files Policy
+
+**Store outside the repo, not just gitignored.** `.gitignore` is a blacklist
+and can be bypassed by `git add -f`, accidental commits, or files that were
+committed before being added to the ignore list.
+
+For anything truly sensitive (wallet info, tax CSVs, portfolio data):
+
+```bash
+mkdir -p ~/.config/crypto_swarms
+chmod 700 ~/.config/crypto_swarms
+```
+
+Then read from env vars pointing at that directory. Code cannot accidentally
+commit what isn't inside the worktree.
+
+`.gitignore` entries for `data/private/`, `.env`, etc. are belt-and-braces
+defence — they catch accidents but should not be the only line of defence.
+
 ## Future Repo Split
 
 When strategy logic or personal data enters the picture, split into:
 
 - `crypto_swarms` (this repo, public) — infrastructure, generic checks, transports
 - `crypto_swarms_private` (future, private) — strategy, wallets, recipients, positions
+
+### How the two repos relate
+
+| Approach | Recommended? | Notes |
+|----------|--------------|-------|
+| Package the public repo (PyPI / r-universe) | Yes | Private repo imports as a dependency |
+| Git submodule | No | Painful UX, CI coupling |
+| Path dependency (`pip install -e ../crypto_swarms`) | OK for dev | Not reproducible across machines |
+| Fork and rebase | No | Hard to maintain |
+
+## Wallet Addresses
+
+Wallet addresses on public blockchains are always public — they're identifiers,
+not secrets. What's private is the **private key** that controls them.
+
+- **Watch-only usage** (reading balances, no signing) is safe code-wise
+- But committing an address ties your GitHub identity to all on-chain activity
+  for that address, **forever**, via chain-analysis tools
+- Prefer fresh addresses never funded from your main wallet, or hash/truncate
+  any addresses in committed code
+
+## Getting an Anthropic API Key
+
+A Claude.ai subscription (Pro/Max/Team) does NOT include API access.
+They are billed separately:
+
+| Product | What it covers | Where |
+|---------|---------------|-------|
+| Claude.ai subscription | Web/desktop/mobile chat | claude.ai/upgrade |
+| Anthropic API | Programmatic calls from code | console.anthropic.com |
+
+For this project's Swarms agent, add billing at console.anthropic.com, create
+an API key (`sk-ant-...`), and add it as the `ANTHROPIC_API_KEY` GH Actions
+secret.
+
+Free alternatives for the LLM call:
+- **Groq** (free tier, Llama models)
+- **Gemini API** (generous free tier)
+- **Ollama** (local, free, runs on Apple Silicon)
