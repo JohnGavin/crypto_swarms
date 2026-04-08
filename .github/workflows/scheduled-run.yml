@@ -37,10 +37,14 @@ jobs:
       - name: Run T pipeline
         run: nix develop --command t run src/pipeline.t
 
-      - name: Run Swarms agent (dry-run, no API key in CI)
+      - name: Run Swarms agent (live dispatch on triggered alerts)
         run: nix develop --command python3 scripts/swarms_agent.py
         env:
-          SWARMS_DRY_RUN: 'true'
+          SWARMS_DRY_RUN: 'false'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GH_REPO: ${{ github.repository }}
 
       - name: Upload report artifact
         uses: actions/upload-artifact@v4

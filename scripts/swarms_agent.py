@@ -1,29 +1,41 @@
 #!/usr/bin/env python3
-"""Swarms agent post-step: read pipeline alerts and act on them.
+"""Swarms agent post-step: read pipeline alerts and dispatch notifications.
 
 Runs OUTSIDE the T pipeline (after `t run`), because Swarms needs network for
 LLM API calls and Nix sandbox blocks network.
 
-Architecture:
+Pipeline:
     fetch_prices.py  ->  t run src/pipeline.t  ->  swarms_agent.py
     (network)            (sandboxed)               (network)
 
-Phase 1 (this file): stub that reads alerts/prices and prints what it WOULD do.
-Phase 2 (future): wire up real Swarms agent with LLM-driven decisions.
+Transports (both gated on n_triggered > 0):
+  1. Gmail SMTP via GMAIL_USERNAME / GMAIL_APP_PASSWORD env vars
+     (same pattern as irishbuoys/R/email_summary.R, but Python smtplib)
+  2. GitHub issue via GH REST API (uses GH_TOKEN, no extra deps)
+
+Env vars:
+    SWARMS_DRY_RUN        true (default) | false  -- skip all transports if true
+    CRYPTO_FORCE_ALERT    true | false (default)  -- force alert for testing
+    GMAIL_USERNAME        Gmail address
+    GMAIL_APP_PASSWORD    Gmail app password (not your real password)
+    GH_TOKEN              GitHub token (auto-set in GHA)
+    ANTHROPIC_API_KEY     Phase 2: real Swarms LLM call
+    GH_REPO               default: JohnGavin/crypto_swarms
 
 Usage:
     nix develop --command python3 scripts/swarms_agent.py
-    # Optional env vars for Phase 2:
-    #   SWARMS_DRY_RUN=false  ANTHROPIC_API_KEY=sk-...
-
-Set SWARMS_DRY_RUN=false to actually invoke an LLM (requires API key).
 """
 
 import json
 import os
+import smtplib
+import ssl
 import sys
+from datetime import datetime, timezone
+from email.message import EmailMessage
 from pathlib import Path
 
+import httpx
 import pandas as pd
 import pyarrow as pa
 import pyarrow.ipc as ipc
@@ -31,7 +43,11 @@ import pyarrow.ipc as ipc
 
 PIPELINE_OUTPUT = Path("pipeline-output")
 DRY_RUN = os.environ.get("SWARMS_DRY_RUN", "true").lower() != "false"
+FORCE_ALERT = os.environ.get("CRYPTO_FORCE_ALERT", "false").lower() == "true"
+GH_REPO = os.environ.get("GH_REPO", "JohnGavin/crypto_swarms")
 
+
+# ---------- Pipeline I/O ----------
 
 def read_arrow(name):
     path = PIPELINE_OUTPUT / name / "artifact"
@@ -53,43 +69,168 @@ def read_json(name):
 
 
 def build_agent_context(prices, analysis, alerts):
-    """Construct the context dict that would be sent to a Swarms agent."""
     triggered = analysis[analysis["trigger_alert"] == True]
     return {
         "alert_message": alerts,
         "n_triggered": int(len(triggered)),
         "tokens": prices[["token", "price_usd", "price_change_24h"]].to_dict("records"),
-        "stablecoins": triggered[["token", "price_usd"]].to_dict("records") if len(triggered) > 0 else [],
+        "stablecoins_triggered": (
+            triggered[["token", "price_usd"]].to_dict("records")
+            if len(triggered) > 0 else []
+        ),
         "data_source": prices["source"].iloc[0] if len(prices) > 0 else "unknown",
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     }
 
 
-def call_swarms_agent(context):
-    """Phase 2: invoke a Swarms agent with the context.
+# ---------- Alert formatters ----------
 
-    Wired up here to fail loudly if called without the SDK installed.
-    For Phase 1 we never reach this — DRY_RUN is True.
-    """
+def format_subject(context):
+    n = context["n_triggered"]
+    if n == 0:
+        return "[crypto_swarms] No alerts"
+    tickers = ",".join(s["token"] for s in context["stablecoins_triggered"])
+    return "[crypto_swarms] ALERT: {} depeg ({})".format(tickers, n)
+
+
+def format_body_text(context):
+    lines = [
+        "Crypto Swarms Alert",
+        "=" * 30,
+        "",
+        "Time: " + context["timestamp_utc"],
+        "Source: " + context["data_source"],
+        "Alert: " + context["alert_message"],
+        "",
+        "Triggered: " + str(context["n_triggered"]),
+        "",
+        "Tokens:",
+    ]
+    for tok in context["tokens"]:
+        change = tok.get("price_change_24h")
+        change_str = " ({:+.2f}%)".format(change) if change is not None else ""
+        lines.append("  {:<6} ${:>12.6f}{}".format(
+            tok["token"], tok["price_usd"], change_str
+        ))
+    if context["stablecoins_triggered"]:
+        lines.extend(["", "DEPEGGED:"])
+        for s in context["stablecoins_triggered"]:
+            lines.append("  {} at ${:.6f}".format(s["token"], s["price_usd"]))
+    return "\n".join(lines)
+
+
+def format_body_html(context):
+    rows = "".join(
+        "<tr><td>{}</td><td>${:.6f}</td><td>{}</td></tr>".format(
+            t["token"],
+            t["price_usd"],
+            "{:+.2f}%".format(t["price_change_24h"]) if t.get("price_change_24h") is not None else "",
+        )
+        for t in context["tokens"]
+    )
+    callout = (
+        '<div style="background:#fff3cd;border:1px solid #ffeeba;padding:10px;'
+        'border-radius:4px;"><strong>ALERT:</strong> {}</div>'.format(context["alert_message"])
+        if context["n_triggered"] > 0
+        else '<div style="color:#666;">No alerts triggered.</div>'
+    )
+    return """<html><body style="font-family:sans-serif;">
+<h2>Crypto Swarms Alert</h2>
+{callout}
+<p><strong>Time:</strong> {time}<br>
+<strong>Source:</strong> {source}</p>
+<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">
+<tr><th>Token</th><th>Price (USD)</th><th>24h Change</th></tr>
+{rows}
+</table>
+</body></html>""".format(
+        callout=callout,
+        time=context["timestamp_utc"],
+        source=context["data_source"],
+        rows=rows,
+    )
+
+
+# ---------- Transport: Gmail SMTP ----------
+
+def send_email_alert(subject, body_text, body_html):
+    """Send via Gmail SMTP. Mirrors irishbuoys/R/email_summary.R pattern."""
+    user = os.environ.get("GMAIL_USERNAME")
+    pwd = os.environ.get("GMAIL_APP_PASSWORD")
+    if not (user and pwd):
+        print("[email] SKIPPED: GMAIL_USERNAME / GMAIL_APP_PASSWORD not set")
+        return False
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = user
+    msg["To"] = user  # send to self by default
+    msg.set_content(body_text)
+    msg.add_alternative(body_html, subtype="html")
+
     try:
-        from swarms import Agent  # noqa: F401
-    except ImportError:
-        print("ERROR: swarms package not installed. Add to flake.nix py-env.", file=sys.stderr)
-        sys.exit(1)
+        with smtplib.SMTP_SSL(
+            "smtp.gmail.com", 465, context=ssl.create_default_context()
+        ) as s:
+            s.login(user, pwd)
+            s.send_message(msg)
+        print("[email] Sent to {}".format(user))
+        return True
+    except Exception as e:
+        print("[email] FAILED: {}".format(e), file=sys.stderr)
+        return False
 
-    # Phase 2 starter — uncomment when ready:
-    # from swarms.models import OpenAIChat
+
+# ---------- Transport: GitHub issue ----------
+
+def create_github_issue(title, body):
+    """Create a GH issue via REST API. Uses GH_TOKEN env var (auto-set in GHA)."""
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        print("[gh] SKIPPED: GH_TOKEN / GITHUB_TOKEN not set")
+        return False
+
+    url = "https://api.github.com/repos/{}/issues".format(GH_REPO)
+    headers = {
+        "Authorization": "Bearer " + token,
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    payload = {"title": title, "body": body, "labels": ["alert", "automated"]}
+
+    try:
+        resp = httpx.post(url, headers=headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        issue_url = resp.json().get("html_url", "(unknown)")
+        print("[gh] Created issue: {}".format(issue_url))
+        return True
+    except Exception as e:
+        print("[gh] FAILED: {}".format(e), file=sys.stderr)
+        return False
+
+
+# ---------- Optional: real Swarms LLM call ----------
+
+def call_swarms_agent(context):
+    """Phase 2: invoke a Swarms agent. Gated on swarms package being installed."""
+    try:
+        from swarms import Agent
+        from swarms.models import OpenAIChat  # noqa: F401
+    except ImportError:
+        return "Swarms SDK not installed (add to py-deps)"
+
+    # Uncomment when ready and ANTHROPIC_API_KEY / OPENAI_API_KEY is set:
     # agent = Agent(
     #     agent_name="crypto-alert-responder",
-    #     system_prompt="You are a crypto alert bot. Given price data and alerts, "
-    #                   "decide whether to send a notification, log to a file, "
-    #                   "or take no action. Be conservative.",
+    #     system_prompt="You are a crypto alert bot. Decide whether to escalate.",
     #     llm=OpenAIChat(model_name="gpt-4o-mini"),
     #     max_loops=1,
     # )
-    # response = agent.run(json.dumps(context))
-    # return response
-    return "Phase 2 stub: Swarms SDK not yet wired up"
+    # return agent.run(json.dumps(context))
+    return "Swarms agent block commented out — see code"
 
+
+# ---------- Main ----------
 
 def main():
     print("=" * 50)
@@ -109,17 +250,42 @@ def main():
 
     context = build_agent_context(prices, analysis, alerts)
 
+    if FORCE_ALERT and context["n_triggered"] == 0:
+        print("\n[FORCE_ALERT=true] Synthesizing test alert")
+        context["n_triggered"] = 1
+        context["stablecoins_triggered"] = [{"token": "TEST", "price_usd": 0.95}]
+        context["alert_message"] = "TEST ALERT — synthetic depeg for transport testing"
+
     print("\nAgent context:")
     print(json.dumps(context, indent=2, default=str))
 
+    if context["n_triggered"] == 0:
+        print("\nNo action needed (no triggered alerts).")
+        return
+
+    # Build alert artifacts
+    subject = format_subject(context)
+    body_text = format_body_text(context)
+    body_html = format_body_html(context)
+
     if DRY_RUN:
-        print("\n[DRY RUN] Would invoke Swarms agent with context above.")
-        print("Set SWARMS_DRY_RUN=false to actually call the agent.")
-    else:
-        print("\nInvoking Swarms agent...")
-        response = call_swarms_agent(context)
-        print("Agent response:")
-        print(response)
+        print("\n[DRY RUN] Would send the following:")
+        print("\nSubject: " + subject)
+        print("\n--- Body (text) ---")
+        print(body_text)
+        print("\nSet SWARMS_DRY_RUN=false to actually dispatch transports.")
+        return
+
+    # Live dispatch
+    print("\nDispatching transports...")
+    sent_email = send_email_alert(subject, body_text, body_html)
+    sent_issue = create_github_issue(subject, "```\n" + body_text + "\n```")
+    print("\nResult: email={}, gh_issue={}".format(sent_email, sent_issue))
+
+    # Phase 2: optional LLM call
+    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"):
+        print("\nLLM key detected, invoking Swarms agent...")
+        print(call_swarms_agent(context))
 
 
 if __name__ == "__main__":
