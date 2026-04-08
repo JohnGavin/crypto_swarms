@@ -209,25 +209,49 @@ def create_github_issue(title, body):
         return False
 
 
-# ---------- Optional: real Swarms LLM call ----------
+# ---------- LLM backend: Claude Code CLI (Max subscription) ----------
 
-def call_swarms_agent(context):
-    """Phase 2: invoke a Swarms agent. Gated on swarms package being installed."""
+def call_claude_cli(context, timeout=120):
+    """Invoke `claude -p` to analyse the alert context.
+
+    Uses the local Claude Code CLI with the user's Max subscription (OAuth).
+    Explicitly unsets ANTHROPIC_API_KEY so -p doesn't fall back to API credits.
+
+    Returns the LLM response as a string, or an error message.
+    """
+    import subprocess
+
+    prompt = (
+        "You are a crypto alert analyst. Given this pipeline output, decide "
+        "whether the alert is a real depeg, a data glitch, or a noise event. "
+        "Respond in <=3 short bullet points with: (1) verdict, (2) confidence "
+        "(low/med/high), (3) recommended action.\n\n"
+        "Context:\n" + json.dumps(context, indent=2, default=str)
+    )
+
+    # Remove ANTHROPIC_API_KEY from env so claude -p uses subscription OAuth
+    env = os.environ.copy()
+    env.pop("ANTHROPIC_API_KEY", None)
+
     try:
-        from swarms import Agent
-        from swarms.models import OpenAIChat  # noqa: F401
-    except ImportError:
-        return "Swarms SDK not installed (add to py-deps)"
-
-    # Uncomment when ready and ANTHROPIC_API_KEY / OPENAI_API_KEY is set:
-    # agent = Agent(
-    #     agent_name="crypto-alert-responder",
-    #     system_prompt="You are a crypto alert bot. Decide whether to escalate.",
-    #     llm=OpenAIChat(model_name="gpt-4o-mini"),
-    #     max_loops=1,
-    # )
-    # return agent.run(json.dumps(context))
-    return "Swarms agent block commented out — see code"
+        result = subprocess.run(
+            ["claude", "-p"],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+            check=False,
+        )
+        if result.returncode != 0:
+            return "[claude -p] exit {}: {}".format(result.returncode, result.stderr.strip())
+        return result.stdout.strip()
+    except FileNotFoundError:
+        return "[claude -p] claude CLI not found — install Claude Code"
+    except subprocess.TimeoutExpired:
+        return "[claude -p] timed out after {}s".format(timeout)
+    except Exception as e:
+        return "[claude -p] error: {}".format(e)
 
 
 # ---------- Main ----------
@@ -268,6 +292,13 @@ def main():
     body_text = format_body_text(context)
     body_html = format_body_html(context)
 
+    # LLM analysis via Claude Code CLI — runs even in dry-run (read-only)
+    llm_verdict = None
+    if os.environ.get("CRYPTO_LLM_ANALYSIS", "false").lower() == "true":
+        print("\nInvoking `claude -p` for analysis...")
+        llm_verdict = call_claude_cli(context)
+        print(llm_verdict)
+
     if DRY_RUN:
         print("\n[DRY RUN] Would send the following:")
         print("\nSubject: " + subject)
@@ -276,16 +307,16 @@ def main():
         print("\nSet SWARMS_DRY_RUN=false to actually dispatch transports.")
         return
 
+    # Append LLM verdict to body if we got one
+    if llm_verdict:
+        body_text += "\n\n--- LLM Analysis ---\n" + llm_verdict
+        body_html += "<hr><h3>LLM Analysis</h3><pre>{}</pre>".format(llm_verdict)
+
     # Live dispatch
     print("\nDispatching transports...")
     sent_email = send_email_alert(subject, body_text, body_html)
     sent_issue = create_github_issue(subject, "```\n" + body_text + "\n```")
     print("\nResult: email={}, gh_issue={}".format(sent_email, sent_issue))
-
-    # Phase 2: optional LLM call
-    if os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"):
-        print("\nLLM key detected, invoking Swarms agent...")
-        print(call_swarms_agent(context))
 
 
 if __name__ == "__main__":

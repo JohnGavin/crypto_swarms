@@ -21,6 +21,9 @@ jobs:
       - name: Check for raw wallet addresses
         run: python3 scripts/ci/check_addresses.py $(git ls-files)
 
+      - name: Check for leaked secrets / API keys
+        run: python3 scripts/ci/check_secrets.py $(git ls-files)
+
       - name: Install Nix
         uses: cachix/install-nix-action@v31
         with:
