@@ -2,8 +2,8 @@ name: Scheduled Crypto Pipeline Run
 
 on:
   schedule:
-    # Every 6 hours (UTC) - within Jupiter's 0.5 RPS keyless limit
-    - cron: '0 */6 * * *'
+    # Every 12 hours (UTC) - 00:00 and 12:00
+    - cron: '0 0,12 * * *'
   push:
     branches: [main]
   workflow_dispatch:
