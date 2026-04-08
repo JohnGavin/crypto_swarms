@@ -7,3 +7,22 @@ pipeline-output/
 *.html
 data/latest_prices.csv
 data/price_history.csv
+
+# Sensitive — NEVER commit to a public repo
+.env
+.env.*
+!.env.example
+secrets/
+data/private/
+*.key
+*.pem
+id_rsa*
+wallet*.json
+*seed*.txt
+*.mnemonic
+
+# Personal trading data
+data/portfolio*.csv
+data/positions*.csv
+data/trades*.csv
+data/pnl*.csv
