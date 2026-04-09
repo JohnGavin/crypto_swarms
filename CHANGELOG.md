@@ -1,5 +1,54 @@
 # Changelog
 
+## 2026-04-08 / 2026-04-09
+
+### Completed
+- **Plotly range slider chart** replacing ggplot2, 90-day default range (per user UI rule)
+- **History dedupe** on `(token, fetched_at)` in `fetch_prices.py`
+- **Swarms agent post-step stub** (`scripts/swarms_agent.py`) with dry-run mode
+- **GHA scheduled workflow** — cron every 12h, uploads report, commits price history
+- **Email transport** via Gmail SMTP (`smtplib`, mirrors `irishbuoys/R/email_summary.R` pattern)
+- **GitHub issue transport** via REST API (no `gh` CLI dep, uses `GH_TOKEN`)
+- **Security policy** (`SECURITY.md`) — what stays public, wallet guidance, rotation process
+- **`.env.example`** template + expanded `.gitignore` for sensitive files
+- **Address scanner** (`scripts/ci/check_addresses.py`) — blocks raw Solana/Ethereum addresses not on allowlist
+- **Secrets scanner** (`scripts/ci/check_secrets.py`) — detects Anthropic, OpenAI, Google, ElevenLabs, GitHub, AWS, Slack, private keys, Gmail app passwords
+- **Pre-commit hook** (`scripts/ci/install-hooks.sh`) runs both scanners
+- **GHA runs both scanners** on every push so PRs can't bypass local hooks
+- **Claude CLI integration** (`call_claude_cli()`) — uses Max subscription via `claude -p`, zero API cost
+- **Packaging plan** (`docs/PACKAGING_PLAN.md`) documented for future private-repo split
+- **Issue #8** raised to track future `crypto_swarms_private` sibling repo
+- **Analyze alerts helper** (`scripts/analyze_alerts.sh`) for manual/scheduled Claude Code analysis
+
+### Failed Approaches
+- **Plotly first attempt rendered twice** — `{python}` auto-display + `{r}` include both emitted the chart. Fix: just `fig` at end of python chunk.
+- **`reticulate` used its own Python** (no pandas) in Quarto `{python}` chunks. Fix: set `RETICULATE_PYTHON = Sys.getenv("QUARTO_PYTHON")` in setup chunk.
+- **`claude -p` silent exit 1 inside `nix develop`** — Nix puts `/nix/store/...claude-code-2.1.25/bin/claude` ahead of `/opt/homebrew/bin/claude` in PATH. The Nix-bundled claude has no OAuth credentials, so `-p` exits silently. Fix: `_find_claude_binary()` prefers Homebrew's absolute path.
+- **Initial diagnosis of `claude -p` "credit too low"** blamed subprocess context. Actual cause: `ANTHROPIC_API_KEY` in `~/.zshenv` line 69 shadowed the Max subscription OAuth. User had to rotate the leaked key (which they accidentally pasted during diagnosis — prompted immediate rotation of all four leaked keys).
+- **`env -u ANTHROPIC_API_KEY echo "..." | claude -p`** — `env -u` only affected `echo`, not `claude`. Correct form: `echo "..." | env -u ANTHROPIC_API_KEY claude -p`.
+
+### Accuracy / Metrics
+- Pipeline nodes: 5/5 passing (added `history`)
+- Report sections: minimal → 4 (alert callout, prices table, depeg analysis, plotly history chart)
+- Alert transports: 0 → 3 (email, GH issue, LLM analysis via claude -p)
+- Pre-commit scanners: 0 → 2 (addresses, secrets)
+- GHA cron runs succeeded: 2 (02:11, 07:16) before cron switched from 6h → 12h
+- Issues: #1 (Phase 2/3) + #8 (private split) open; #2/#3/#4 closed with fixes
+- Commits in session: 11 (from `b9f7044` packaging docs through `b2cf318` claude -p fix)
+
+### Security Actions Taken
+- **Four API keys rotated** after accidental paste during diagnosis: Anthropic, OpenAI, Google, ElevenLabs
+- **`ANTHROPIC_API_KEY` commented out** in `~/.zshenv` — `claude -p` now uses Max OAuth
+- **Pre-commit secret scanner** prevents recurrence
+- **`SECURITY.md`** documents the policy and rotation process
+
+### Known Limitations
+- GHA workflow will fail LLM analysis step since GHA runners don't have user's Claude Code OAuth. `CRYPTO_LLM_ANALYSIS` defaults to `false` in the workflow. Manual local runs use the Max subscription.
+- Price history in GHA commits to main directly (no PR review for accumulated data)
+- Plotly chart in Quarto requires both `reticulate` (R) and `plotly` (Python) — heavier than ggplot2 but gives interactive range slider
+- Phase 2 (`targets`/`crew` inside `rn` nodes) still pending — tracked in #1
+- Packaging as pip-installable pending — tracked in #8, documented in `docs/PACKAGING_PLAN.md`
+
 ## 2026-04-07
 
 ### Completed
