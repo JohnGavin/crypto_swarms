@@ -15,15 +15,41 @@ import pandas as pd
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Jupiter: Solana mint addresses
-# Per https://dev.jup.ag/docs/ — keyless, 0.5 RPS, v3 endpoint
+# Jupiter: Solana ecosystem tokens (mint addresses)
+# Per https://dev.jup.ag/docs/ — keyless, 0.5 RPS, v3 endpoint, up to 50 ids/req
+# Grouped by category for readability.
 JUPITER_TOKENS = {
-    "So11111111111111111111111111111111111111112": "SOL",
+    # Stablecoins (depeg monitoring targets)
     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "USDC",
     "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": "USDT",
+
+    # Native / liquid staked SOL
+    "So11111111111111111111111111111111111111112":  "SOL",
+    "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So":  "mSOL",
+    "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn": "JitoSOL",
+
+    # DEX / liquidity protocol tokens
+    "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN":  "JUP",
+    "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R": "RAY",
+    "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE":  "ORCA",
+
+    # Infrastructure / DePIN
+    "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3": "PYTH",
+    "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof":  "RENDER",
+    "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux":  "HNT",
+
+    # Liquid staking / lending
+    "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL":  "JTO",
+    "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS":  "KMNO",
+    "DriFtupJYLTosbwoN8koMbEYSx54aFAVLddWsbksjwg7": "DRIFT",
+
+    # Memes (included for signal/noise analysis)
+    "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263": "BONK",
+    "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm": "WIF",
 }
 
-# CoinGecko: fallback IDs
+# CoinGecko: fallback IDs (minimal set, degraded mode only)
+# Only covers stablecoins + SOL since most Solana tokens aren't on CG free tier.
 COINGECKO_TOKENS = {
     "solana": "SOL",
     "usd-coin": "USDC",

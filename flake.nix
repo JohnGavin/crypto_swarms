@@ -31,6 +31,7 @@
             jsonlite
             knitr
             reticulate
+            pointblank
           ];
         };
 
