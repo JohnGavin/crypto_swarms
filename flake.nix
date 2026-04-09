@@ -32,6 +32,8 @@
             knitr
             reticulate
             pointblank
+            targets
+            crew
           ];
         };
 
