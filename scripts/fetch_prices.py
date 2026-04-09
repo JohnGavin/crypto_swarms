@@ -119,24 +119,35 @@ except Exception as e:
     df = fetch_coingecko()
     print("Source: CoinGecko API")
 
-# Write latest (overwrite)
-out = Path("data/latest_prices.csv")
-out.parent.mkdir(exist_ok=True)
-df.to_csv(out, index=False, sep="|")
-print("Wrote {} rows to {}".format(len(df), out))
+# Normalize dtypes for Parquet stability (nullable types for Jupiter-only columns)
+df["fetched_at"] = pd.to_datetime(df["fetched_at"], utc=True)
+for col in ("price_change_24h", "liquidity"):
+    df[col] = pd.to_numeric(df[col], errors="coerce")
+df["block_id"] = pd.to_numeric(df["block_id"], errors="coerce").astype("Int64")
 
-# Append to history, then dedupe on (token, fetched_at)
-history = Path("data/price_history.csv")
-write_header = not history.exists()
-df.to_csv(history, index=False, sep="|", mode="a", header=write_header)
+data_dir = Path("data")
+data_dir.mkdir(exist_ok=True)
 
-# Read back, dedupe, rewrite (keeps last occurrence per token+timestamp)
-hist_df = pd.read_csv(history, sep="|")
+# Write latest snapshot (small, overwritten each run)
+latest = data_dir / "latest_prices.parquet"
+df.to_parquet(latest, index=False, compression="zstd")
+print("Wrote {} rows to {}".format(len(df), latest))
+
+# Append to history Parquet (read-append-dedupe-write: fine at this scale)
+history = data_dir / "price_history.parquet"
+if history.exists():
+    hist_df = pd.read_parquet(history)
+    hist_df = pd.concat([hist_df, df], ignore_index=True)
+else:
+    hist_df = df.copy()
+
 before = len(hist_df)
 hist_df = hist_df.drop_duplicates(subset=["token", "fetched_at"], keep="last")
+hist_df = hist_df.sort_values(["token", "fetched_at"]).reset_index(drop=True)
 after = len(hist_df)
+
+hist_df.to_parquet(history, index=False, compression="zstd")
 if before != after:
-    hist_df.to_csv(history, index=False, sep="|")
     print("History: {} rows ({} duplicates removed)".format(after, before - after))
 else:
     print("History: {} total rows in {}".format(after, history))

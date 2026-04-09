@@ -7,6 +7,8 @@ pipeline-output/
 *.html
 data/latest_prices.csv
 data/price_history.csv
+data/latest_prices.parquet
+data/price_history.parquet
 
 # Sensitive — NEVER commit to a public repo
 .env

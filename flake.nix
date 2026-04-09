@@ -34,6 +34,7 @@
             pointblank
             targets
             crew
+            duckplyr
           ];
         };
 

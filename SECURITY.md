@@ -68,6 +68,43 @@ commit what isn't inside the worktree.
 `.gitignore` entries for `data/private/`, `.env`, etc. are belt-and-braces
 defence — they catch accidents but should not be the only line of defence.
 
+## VM / Container Isolation Triggers
+
+This project currently handles **public market data only** (Jupiter, CoinGecko). No sensitive data, no network egress concerns, no private keys. OrbStack / container isolation is **not required right now**.
+
+When ANY of the following become true, migrate the relevant workload into an OrbStack `--network=none` container (same pattern as `irishbuoys` medical-data anonymization):
+
+| Trigger | Why VM isolation |
+|---------|-----------------|
+| Wallet private keys loaded anywhere in the process | Defense-in-depth against exfiltration bugs |
+| Real trading execution (CEX/DEX API with write scope) | Network isolation limits blast radius |
+| Personal P&L / tax / trade history loaded into R/Python | Same treatment as PHI |
+| Proprietary strategy logic | Protect from supply-chain attacks |
+| Private API keys in the process env | Limit leak potential |
+
+**Reference pattern** (`~/.claude/rules/medical-data-anonymization.md`):
+
+```bash
+docker run --rm \
+  --network=none \
+  --memory=4g \
+  -v "$(pwd):/pkg:ro" \
+  -v "$(pwd)/data/raw:/data/raw:ro" \
+  -v "$(pwd)/data/anonymized:/data/out" \
+  -w /pkg \
+  nixos/nix:latest bash -c '
+    nix-shell default.nix --run "Rscript -e \"...\""
+  '
+```
+
+**What this guarantees:**
+- `--network=none` — no outbound connections (data cannot be exfiltrated)
+- `:ro` mounts on code and source — container cannot modify them
+- Writable mount only on output dir
+- Memory limit prevents runaway processes
+
+**When triggered:** the private workload moves to `crypto_swarms_private` (see #8), which runs inside the container. This public repo stays unchanged.
+
 ## Future Repo Split
 
 When strategy logic or personal data enters the picture, split into:

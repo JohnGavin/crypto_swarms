@@ -1,53 +1,61 @@
--- crypto_alert_t: Phase 1 pipeline
+-- crypto_alert_t: Phase 2 pipeline (targets + crew inside rn)
 --
 -- Prerequisites: Fetch prices first (outside Nix sandbox — needs network):
 --   python scripts/fetch_prices.py
 --
--- Architecture: T (read CSV) -> rn (analyse) -> pyn (alert) -> Quarto (report)
--- Nix sandbox has no network access, so data fetch is a pre-step.
+-- Data format: Parquet (was CSV in Phase 1)
+--   data/latest_prices.parquet   — latest snapshot, overwritten each run
+--   data/price_history.parquet   — accumulated, appended + deduped each run
+--
+-- Architecture: include parquet -> rn (targets DAG) -> pyn (alert) -> Quarto
 
 p = pipeline {
 
-  -- 1. T: read pre-fetched prices CSV
-  --    Written by scripts/fetch_prices.py (run before `t run`)
-  prices = node(
-    command = read_csv("data/latest_prices.csv", separator = "|"),
+  -- 1a. R: read latest prices snapshot from Parquet
+  prices = rn(
+    command = <{
+      library(arrow)
+      prices <- arrow::read_parquet("data/latest_prices.parquet")
+    }>,
+    include = ["data/latest_prices.parquet"],
     serializer = ^arrow
   )
 
-  -- 1b. T: read accumulated price history (appended by fetch_prices.py)
-  history = node(
-    command = read_csv("data/price_history.csv", separator = "|"),
+  -- 1b. R: read accumulated price history from Parquet
+  history = rn(
+    command = <{
+      library(arrow)
+      history <- arrow::read_parquet("data/price_history.parquet")
+    }>,
+    include = ["data/price_history.parquet"],
     serializer = ^arrow
   )
 
-  -- 2. R: analyse prices via targets + crew pipeline (Phase 2)
-  --    Inside this rn node we:
-  --      (a) Write `prices` and `history` to parquet files
-  --      (b) Run a targets DAG via tar_make() using crew for parallelism
-  --      (c) Read the `alert_summary` target as the node output
+  -- 2. R: analyse prices via targets + crew DAG (Phase 2)
+  --    Inside the rn node:
+  --      (a) Write the deserialized prices/history tables to parquet files
+  --      (b) Run the targets DAG via tar_make() with crew parallelism
+  --      (c) Read the alert_summary target as this node's output
   --
   --    See _targets.R for the plan and R/analysis_functions.R for pure helpers.
-  --    Tradeoff: no cross-T-run targets caching (Nix sandbox is content-addressed),
-  --    but we get DAG structure, error isolation, and crew parallelism within build.
   analysis = rn(
     command = <{
       library(arrow)
       library(targets)
 
-      # Hand the rn-node-scoped data off to targets via parquet files
       arrow::write_parquet(prices,  "tmp_prices.parquet")
       arrow::write_parquet(history, "tmp_history.parquet")
 
-      # Run the targets DAG (see _targets.R)
       tar_make(reporter = "silent")
-
-      # The rn node's output is the alert_summary target
       analysis <- tar_read(alert_summary)
     }>,
     deserializer = [
       prices:  ^arrow,
       history: ^arrow
+    ],
+    include = [
+      "_targets.R",
+      "R/analysis_functions.R"
     ],
     serializer = ^arrow
   )

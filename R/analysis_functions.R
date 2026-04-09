@@ -80,6 +80,7 @@ compute_window_summary <- function(hist, window_days, suffix) {
       !!paste0("mad_",        suffix) := mad(price_usd, na.rm = TRUE),
       !!paste0("liq_median_", suffix) := median(liquidity, na.rm = TRUE),
       !!paste0("liq_mad_",    suffix) := mad(liquidity, na.rm = TRUE),
+      !!paste0("n_liq_",      suffix) := sum(!is.na(liquidity)),
       !!paste0("n_",          suffix) := n(),
       .groups = "drop"
     )
@@ -136,9 +137,19 @@ compute_alerts <- function(prices_df, summary_7d, summary_30d, bollinger_7d) {
         (!is.na(bb_lower_7d) & price_usd < bb_lower_7d)
       ),
 
-      # Liquidity drop (MAD z-score OR raw percentage)
+      # Liquidity drop: need enough non-NA liquidity observations AND non-trivial
+      # relative MAD. CoinGecko backfill has NA liquidity so until we accumulate
+      # enough live Jupiter observations, the MAD-based gate stays closed.
+      have_robust_liq = !is.na(n_liq_7d) & n_liq_7d >= MIN_OBS_ROBUST,
+      rel_liq_mad_7d = if_else(
+        !is.na(liq_median_7d) & liq_median_7d > 0 & !is.na(liq_mad_7d),
+        liq_mad_7d / abs(liq_median_7d),
+        NA_real_
+      ),
+      nontrivial_liq_mad = !is.na(rel_liq_mad_7d) & rel_liq_mad_7d >= MIN_REL_MAD,
+
       liq_zscore = if_else(
-        have_robust_history & !is.na(liq_mad_7d) & liq_mad_7d > 0,
+        have_robust_liq & nontrivial_liq_mad & liq_mad_7d > 0,
         (liq_median_7d - liquidity) / liq_mad_7d,
         NA_real_
       ),
