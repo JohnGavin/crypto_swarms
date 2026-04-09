@@ -211,11 +211,30 @@ def create_github_issue(title, body):
 
 # ---------- LLM backend: Claude Code CLI (Max subscription) ----------
 
+def _find_claude_binary():
+    """Find the OAuth-authenticated claude binary.
+
+    Prefers the env var CLAUDE_BIN, then Homebrew (where `claude /login` stores
+    credentials for interactive Max subscription users), then PATH. Inside
+    `nix develop` shells, the Nix-bundled claude has no OAuth creds and exits
+    silently — avoid it.
+    """
+    from shutil import which
+    explicit = os.environ.get("CLAUDE_BIN")
+    if explicit and os.path.exists(explicit):
+        return explicit
+    for candidate in ("/opt/homebrew/bin/claude", "/usr/local/bin/claude"):
+        if os.path.exists(candidate):
+            return candidate
+    return which("claude") or "claude"
+
+
 def call_claude_cli(context, timeout=120):
     """Invoke `claude -p` to analyse the alert context.
 
     Uses the local Claude Code CLI with the user's Max subscription (OAuth).
     Explicitly unsets ANTHROPIC_API_KEY so -p doesn't fall back to API credits.
+    Uses absolute path to Homebrew's claude to avoid Nix-shell shadowing.
 
     Returns the LLM response as a string, or an error message.
     """
@@ -229,13 +248,15 @@ def call_claude_cli(context, timeout=120):
         "Context:\n" + json.dumps(context, indent=2, default=str)
     )
 
+    claude_bin = _find_claude_binary()
+
     # Remove ANTHROPIC_API_KEY from env so claude -p uses subscription OAuth
     env = os.environ.copy()
     env.pop("ANTHROPIC_API_KEY", None)
 
     try:
         result = subprocess.run(
-            ["claude", "-p"],
+            [claude_bin, "-p"],
             input=prompt,
             capture_output=True,
             text=True,
@@ -244,7 +265,16 @@ def call_claude_cli(context, timeout=120):
             check=False,
         )
         if result.returncode != 0:
-            return "[claude -p] exit {}: {}".format(result.returncode, result.stderr.strip())
+            return (
+                "[claude -p] exit {} (binary: {})\n"
+                "  stdout: {}\n"
+                "  stderr: {}"
+            ).format(
+                result.returncode,
+                claude_bin,
+                result.stdout.strip()[:500] or "(empty)",
+                result.stderr.strip()[:500] or "(empty)",
+            )
         return result.stdout.strip()
     except FileNotFoundError:
         return "[claude -p] claude CLI not found — install Claude Code"
