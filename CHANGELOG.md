@@ -1,5 +1,45 @@
 # Changelog
 
+## 2026-04-09 / 2026-04-10
+
+### Completed
+- **16 Solana ecosystem tokens** (SOL, mSOL, JitoSOL, JUP, RAY, ORCA, PYTH, RENDER, HNT, JTO, KMNO, DRIFT, BONK, WIF, USDC, USDT)
+- **Robust moving averages** (MA-7d, MA-30d, median-7d, MAD-7d) with time-based windowing (not count-based)
+- **Price + liquidity anomaly detection** via MAD-based robust z-scores with dual gates (n≥10, rel_MAD≥0.5%)
+- **pointblank validation** on pipeline inputs (schema, types, ranges, uniqueness)
+- **Robust Bollinger bands** (MAD-based, k=3) — bb_valid=TRUE for all 16 tokens after backfill
+- **Phase 2: targets + crew inside rn node** (#1 shipped) — DAG structure, error isolation, crew parallelism
+- **Parquet migration** — replaced CSV with zstd-compressed Parquet; added duckplyr to deps
+- **365-day CoinGecko backfill** — 5,904 rows (369 per token), all tokens have valid bands
+- **Volatility regime detection plan** (#10 raised) — 5 methods, consensus voting, phased rollout
+- **OrbStack VM isolation triggers** documented in SECURITY.md
+- **NFT floor tracking issue** (#9 raised) for Tensor/Magic Eden APIs
+
+### Failed Approaches
+- **WIF false-positive liquidity alert** — CoinGecko backfill has NA liquidity, so MAD of the few live Jupiter observations was near-zero. A 0.2% liquidity change crossed 3σ. Fix: added `n_liq_7d` (non-NA count) and `rel_liq_mad_7d` (relative MAD) gates to match the price gate pattern.
+- **DRIFT/HNT false-positive price alerts** — with only 4 observations, MAD was so small that trivial noise crossed 3σ. Fix: raised minimum from 4 to 10 observations + added relative-MAD floor of 0.5%.
+- **mSOL CoinGecko ID "marinade-staked-sol"** returned 404. Correct ID is "msol". Rate-limited during diagnosis (429). Fixed and retried.
+- **T pipeline `read_csv` with Parquet** — T has no `read_parquet()` primitive. Fix: use `rn` nodes with `include = [...]` to read parquet via arrow inside R.
+- **Removed prices/history T-level nodes** initially in Parquet migration, breaking the Quarto report which depended on `read_node("history")`. Fix: restored as `rn` nodes reading parquet with `include`.
+
+### Accuracy / Metrics
+- Tokens: 3 → 16 (Solana ecosystem)
+- History: 17 rows → 5,904 rows (365 days × 16 tokens)
+- Analysis columns: 27 → 34 (added Bollinger, regime-ready, liquidity gates)
+- Bollinger bands: all `bb_valid_7d = FALSE` → all `TRUE`
+- False positives: 2 (WIF liq, DRIFT/HNT price) → 0 after gate fixes
+- Pipeline nodes: 5/5 green
+- Open issues: 4 (#1 Phase 3 deferred, #8 private split, #9 NFT, #10 regime)
+- Closed issues: 4 (#2 Jupiter v3, #3 history, #4 report, #5 test alert)
+
+### Known Limitations
+- CoinGecko backfill is daily resolution; live Jupiter is 12h — regime detection methods need to handle mixed frequencies
+- Liquidity anomaly gates are effectively OFF (n_liq < 10) until ~5 days of 12h cron accumulates enough live Jupiter observations
+- `targets` metadata doesn't persist across T runs — each build from scratch inside the rn node
+- Stablecoin regimes are trivially "low" — should exclude from regime analysis
+- `depmixS4` and `changepoint` R packages not yet in deps (regime phases R2, R3)
+- GHA `claude -p` won't work (no OAuth on runners) — `CRYPTO_LLM_ANALYSIS=false` in CI
+
 ## 2026-04-08 / 2026-04-09
 
 ### Completed
