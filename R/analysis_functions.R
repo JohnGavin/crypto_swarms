@@ -51,8 +51,7 @@ validate_prices <- function(prices_df) {
     rows_distinct(columns = "token") |>
     interrogate()
 
-  if (any(agent$validation_set$warn, na.rm = TRUE) ||
-      any(agent$validation_set$stop, na.rm = TRUE)) {
+  if (!pointblank::all_passed(agent)) {
     print(agent)
     stop("pointblank validation failed on `prices` table")
   }

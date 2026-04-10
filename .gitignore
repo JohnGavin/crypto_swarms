@@ -29,3 +29,5 @@ data/portfolio*.csv
 data/positions*.csv
 data/trades*.csv
 data/pnl*.csv
+tests/__pycache__/
+.pytest_cache/

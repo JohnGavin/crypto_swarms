@@ -35,6 +35,8 @@
             targets
             crew
             duckplyr
+            testthat
+            usethis
           ];
         };
 
@@ -44,6 +46,7 @@
           pandas
           pyarrow
           plotly
+          pytest
         ]);
 
         # Additional tools
