@@ -16,7 +16,7 @@ library(targets)
 library(crew)
 
 tar_option_set(
-  packages = c("dplyr", "arrow", "pointblank"),
+  packages = c("dplyr", "arrow", "pointblank", "purrr"),
   controller = crew_controller_local(workers = 2L),
   memory = "transient",
   garbage_collection = TRUE,
@@ -47,9 +47,20 @@ list(
   # --- Robust Bollinger bands ---
   tar_target(bollinger_7d, compute_bollinger(summary_7d, "7d")),
 
+  # --- Regime detection (Phase R1: rolling MAD) ---
+  tar_target(regime_rollmad_tbl, regime_rollmad(history_prepped, window_days = 14)),
+  tar_target(regime_transitions_tbl, regime_transitions(regime_rollmad_tbl)),
+  tar_target(regime_latest_tbl, regime_latest(regime_transitions_tbl)),
+
   # --- Final alert table ---
   tar_target(
     alert_summary,
-    compute_alerts(prices_validated, summary_7d, summary_30d, bollinger_7d)
+    compute_alerts(prices_validated, summary_7d, summary_30d, bollinger_7d) |>
+      dplyr::left_join(regime_latest_tbl, by = "token") |>
+      dplyr::mutate(
+        regime_shock = !is.na(is_transition) & is_transition &
+                       transition_direction == "up",
+        trigger_alert = trigger_alert | regime_shock
+      )
   )
 )

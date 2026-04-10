@@ -12,6 +12,12 @@ suppressPackageStartupMessages({
   library(pointblank)
 })
 
+# NOTE: duckplyr is available in deps but NOT used inside the Nix sandbox rn node
+# because DuckDB writes to HOME which is /homeless-shelter (read-only) in sandboxed
+# builds. At current data volume (~6K rows) dplyr is fine.
+# Re-evaluate when history exceeds ~100K rows (multiple years of 12h data).
+USE_DUCKPLYR <- FALSE
+
 # ---- Constants ----
 
 # Robust anomaly thresholds. See ~/.claude/rules/robust-statistics.md and
@@ -71,6 +77,7 @@ prepare_history <- function(history_df) {
 compute_window_summary <- function(hist, window_days, suffix) {
   ref_time <- if (nrow(hist) > 0) max(hist$fetched_at) else Sys.time()
   cutoff <- ref_time - as.difftime(window_days, units = "days")
+
   hist |>
     filter(fetched_at >= cutoff) |>
     group_by(token) |>
@@ -167,7 +174,100 @@ compute_alerts <- function(prices_df, summary_7d, summary_30d, bollinger_7d) {
       is_stablecoin = token %in% STABLECOINS,
       depeg_alert   = is_stablecoin & abs(price_usd - 1.0) > DEPEG_THRESHOLD,
 
-      # Combined trigger
+      # Combined trigger (regime_shock wired later after regime targets exist)
       trigger_alert = depeg_alert | price_anomaly | bb_break | liquidity_alert
     )
+}
+
+# ---- Regime Detection (Phase R1: Rolling MAD) ----
+
+#' Compute rolling MAD of log returns per token with time-based window.
+#' Classifies into tertiles: low (bottom 33%), medium, high (top 33%).
+#' Returns one row per (token, fetched_at) with regime label.
+#'
+#' @param hist data.frame with token, price_usd, fetched_at (POSIXct), sorted
+#' @param window_days Rolling window size in days (default 14)
+#' @param min_obs Minimum observations in window before computing (default 10)
+#' @return data.frame with columns: token, fetched_at, log_return, vol_mad,
+#'   regime_mad (low/medium/high)
+regime_rollmad <- function(hist, window_days = 14, min_obs = 10) {
+  # Exclude stablecoins — their volatility is trivially zero
+  hist <- hist |> filter(!(token %in% STABLECOINS))
+
+  if (nrow(hist) == 0) {
+    return(tibble::tibble(
+      token = character(), fetched_at = as.POSIXct(character()),
+      log_return = numeric(), vol_mad = numeric(), regime_mad = character()
+    ))
+  }
+
+  hist |>
+    group_by(token) |>
+    arrange(fetched_at, .by_group = TRUE) |>
+    mutate(
+      log_return = c(NA_real_, diff(log(price_usd)))
+    ) |>
+    # Time-based rolling MAD (not count-based, per data-validation-timeseries rule)
+    mutate(
+      vol_mad = purrr::map_dbl(
+        seq_along(fetched_at),
+        function(i) {
+          cutoff <- fetched_at[i] - as.difftime(window_days, units = "days")
+          window_returns <- log_return[fetched_at >= cutoff & fetched_at <= fetched_at[i]]
+          window_returns <- window_returns[!is.na(window_returns)]
+          if (length(window_returns) < min_obs) return(NA_real_)
+          mad(window_returns, na.rm = TRUE)
+        }
+      )
+    ) |>
+    # Per-token tertile classification (across full history for that token)
+    mutate(
+      q33 = quantile(vol_mad, 0.33, na.rm = TRUE),
+      q67 = quantile(vol_mad, 0.67, na.rm = TRUE),
+      regime_mad = case_when(
+        is.na(vol_mad)    ~ NA_character_,
+        vol_mad <= q33    ~ "low",
+        vol_mad >= q67    ~ "high",
+        TRUE              ~ "medium"
+      )
+    ) |>
+    ungroup() |>
+    select(token, fetched_at, log_return, vol_mad, regime_mad)
+}
+
+#' Detect regime transitions from a regime series.
+#' A transition is when regime_consensus changes between consecutive observations.
+#'
+#' @param regime_df data.frame with token, fetched_at, regime_mad (or regime_consensus)
+#' @param regime_col Name of the regime column (default "regime_mad")
+#' @return data.frame with added columns: prev_regime, is_transition, transition_direction
+regime_transitions <- function(regime_df, regime_col = "regime_mad") {
+  regime_df |>
+    group_by(token) |>
+    arrange(fetched_at, .by_group = TRUE) |>
+    mutate(
+      prev_regime = lag(.data[[regime_col]]),
+      is_transition = !is.na(prev_regime) &
+                      !is.na(.data[[regime_col]]) &
+                      prev_regime != .data[[regime_col]],
+      transition_direction = case_when(
+        !is_transition ~ NA_character_,
+        prev_regime == "low"    & .data[[regime_col]] %in% c("medium", "high") ~ "up",
+        prev_regime == "medium" & .data[[regime_col]] == "high"                ~ "up",
+        prev_regime == "high"   & .data[[regime_col]] %in% c("medium", "low")  ~ "down",
+        prev_regime == "medium" & .data[[regime_col]] == "low"                 ~ "down",
+        TRUE ~ "lateral"
+      )
+    ) |>
+    ungroup()
+}
+
+#' Get the latest regime + transition per token.
+#' @return data.frame: token, regime_mad, transition_direction (NA if no recent transition)
+regime_latest <- function(regime_with_transitions) {
+  regime_with_transitions |>
+    group_by(token) |>
+    slice_max(fetched_at, n = 1, with_ties = FALSE) |>
+    ungroup() |>
+    select(token, regime_mad, is_transition, transition_direction)
 }

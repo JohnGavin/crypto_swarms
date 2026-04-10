@@ -2,8 +2,12 @@
 # Fetch prices (needs network) then run T pipeline (sandboxed) then show results
 set -euo pipefail
 
-echo ">>> Fetching prices from CoinGecko..."
+echo ">>> Fetching token prices..."
 python3 scripts/fetch_prices.py
+
+echo ""
+echo ">>> Fetching NFT floor prices..."
+python3 scripts/fetch_nft_floors.py
 
 echo ""
 echo ">>> Running T pipeline..."

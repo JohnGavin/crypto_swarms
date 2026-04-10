@@ -91,8 +91,9 @@ cat(sprintf(
 ```
 
 ```{r history-write, echo=FALSE}
-# Hand off Arrow-deserialized history to Python via parquet (next chunk reads it)
+# Hand off to Python via parquet (next chunk reads them)
 arrow::write_parquet(history, "/tmp/crypto_history.parquet")
+arrow::write_parquet(analysis, "/tmp/crypto_analysis.parquet")
 ```
 
 ```{python history-chart-build}
@@ -105,6 +106,8 @@ from datetime import datetime, timedelta, timezone
 hist = pd.read_parquet("/tmp/crypto_history.parquet")
 hist["fetched_at"] = pd.to_datetime(hist["fetched_at"], utc=True)
 hist = hist.sort_values("fetched_at")
+
+ana = pd.read_parquet("/tmp/crypto_analysis.parquet")
 
 tokens = sorted(hist["token"].unique())
 fig = make_subplots(
@@ -124,6 +127,24 @@ for i, tok in enumerate(tokens, start=1):
         ),
         row=i, col=1,
     )
+
+    # Bollinger band overlay (scatter traces spanning the date range)
+    tok_ana = ana[ana["token"] == tok]
+    if len(tok_ana) > 0 and bool(tok_ana.iloc[0].get("bb_valid_7d", False)):
+        bb_mid = float(tok_ana.iloc[0]["bb_mid_7d"])
+        bb_up  = float(tok_ana.iloc[0]["bb_upper_7d"])
+        bb_lo  = float(tok_ana.iloc[0]["bb_lower_7d"])
+        x_range = [sub["fetched_at"].min(), sub["fetched_at"].max()]
+        for val, dash, clr in [(bb_up, "dash", "rgba(255,80,80,0.5)"), (bb_mid, "dot", "rgba(100,100,255,0.5)"), (bb_lo, "dash", "rgba(255,80,80,0.5)")]:
+            fig.add_trace(
+                go.Scatter(
+                    x=x_range, y=[val, val],
+                    mode="lines", showlegend=False,
+                    line=dict(color=clr, width=1, dash=dash),
+                ),
+                row=i, col=1,
+            )
+
     fig.update_yaxes(title_text="USD", tickformat="$,.4f", row=i, col=1)
 
 # Default x-range: last 3 months (per user UI rule)
