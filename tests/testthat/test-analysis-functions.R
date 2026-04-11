@@ -13,7 +13,7 @@ make_prices <- function(n = 3) {
     price_change_24h = c(2.5, -0.01, 0.005)[seq_len(n)],
     liquidity = c(6e8, 4e8, 3e7)[seq_len(n)],
     block_id = 1:n,
-    fetched_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S+00:00")
+    fetched_at = as.POSIXct(Sys.time(), tz = "UTC")
   )
 }
 

@@ -43,7 +43,7 @@ validate_prices <- function(prices_df) {
   agent <- create_agent(prices_df, tbl_name = "prices") |>
     col_exists(c("token", "source", "price_usd", "fetched_at",
                  "price_change_24h", "liquidity", "block_id")) |>
-    col_is_character(c("token", "source", "fetched_at")) |>
+    col_is_character(c("token", "source")) |>
     col_is_numeric(c("price_usd", "price_change_24h", "liquidity")) |>
     col_vals_not_null(c("token", "source", "price_usd", "fetched_at")) |>
     col_vals_gt(columns = "price_usd", value = 0) |>

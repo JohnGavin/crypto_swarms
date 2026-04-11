@@ -43,6 +43,14 @@ p = pipeline {
       library(arrow)
       library(targets)
 
+      # Nix sandbox sets HOME=/homeless-shelter (read-only).
+      # targets + crew need a writable HOME for metadata and worker tempfiles.
+      if (!dir.exists(Sys.getenv("HOME"))) {
+        tmp_home <- file.path(tempdir(), "home")
+        dir.create(tmp_home, recursive = TRUE, showWarnings = FALSE)
+        Sys.setenv(HOME = tmp_home)
+      }
+
       arrow::write_parquet(prices,  "tmp_prices.parquet")
       arrow::write_parquet(history, "tmp_history.parquet")
 
