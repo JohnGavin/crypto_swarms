@@ -28,15 +28,30 @@ from pathlib import Path
 SOLANA_RE = re.compile(r"\b[1-9A-HJ-NP-Za-km-z]{32,44}\b")  # base58, no 0OIl
 ETH_RE = re.compile(r"\b0x[a-fA-F0-9]{40}\b")
 
-# Allowlist: well-known public addresses that are safe to commit
+# Allowlist: well-known public addresses that are safe to commit.
+# These are SPL token MINT addresses and Ethereum contract addresses — public knowledge,
+# not user wallets. Add new tokens here when expanding the tracked set.
 ALLOWLIST = {
-    # Solana mint addresses (public, not user wallets)
-    "So11111111111111111111111111111111111111112",        # Wrapped SOL
-    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",        # USDC
-    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",        # USDT
-    # Ethereum (example tokens)
-    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",          # USDC on mainnet
-    "0xdac17f958d2ee523a2206206994597c13d831ec7",          # USDT on mainnet
+    # Solana SPL token mints (same as JUPITER_TOKENS in fetch_prices.py)
+    "So11111111111111111111111111111111111111112",         # Wrapped SOL
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",     # USDC
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",      # USDT
+    "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",       # JUP
+    "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",       # JTO
+    "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",     # BONK
+    "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",     # WIF
+    "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",      # PYTH
+    "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof",       # RENDER
+    "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux",      # HNT
+    "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",     # RAY
+    "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",      # ORCA
+    "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",      # mSOL
+    "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",     # JitoSOL
+    "DriFtupJYLTosbwoN8koMbEYSx54aFAVLddWsbksjwg7",      # DRIFT
+    "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS",      # KMNO
+    # Ethereum contract addresses (for reference/comparison)
+    "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",        # USDC on mainnet
+    "0xdac17f958d2ee523a2206206994597c13d831ec7",        # USDT on mainnet
 }
 
 # Files/dirs to skip (generated, vendored, or deliberately contain examples)
@@ -48,6 +63,9 @@ SKIP_PATTERNS = [
     "data/price_history.csv",
     "data/latest_prices.csv",
     "scripts/ci/check_addresses.py",  # this file, which mentions them
+    "scripts/ci/check_secrets.py",     # this file, which mentions key patterns
+    "scripts/ci/install-hooks.sh",     # example test address in help text
+    "tests/test_ci_checks.py",         # test fixtures with fake addresses
     "CHANGELOG.md",                    # may mention old patterns
 ]
 
