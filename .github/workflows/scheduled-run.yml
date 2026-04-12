@@ -37,8 +37,11 @@ jobs:
         with:
           name: rstats-on-nix
 
-      - name: Fetch prices (outside sandbox - needs network)
+      - name: Fetch token prices (outside sandbox - needs network)
         run: nix develop --command python3 scripts/fetch_prices.py
+
+      - name: Fetch NFT floor prices
+        run: nix develop --command python3 scripts/fetch_nft_floors.py
 
       - name: Run T pipeline
         run: nix develop --command t run src/pipeline.t
@@ -62,9 +65,9 @@ jobs:
       - name: Commit accumulated price history
         if: github.event_name == 'schedule'
         run: |
-          # Force-add since data/price_history.csv is gitignored locally
+          # Force-add since data/*.parquet is gitignored locally
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f data/price_history.csv
-          git diff --cached --quiet || git commit -m "chore: append price history (run #${{ github.run_number }})"
+          git add -f data/price_history.parquet data/nft_floor_history.parquet 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "chore: append price + NFT history (run #${{ github.run_number }})"
           git push
