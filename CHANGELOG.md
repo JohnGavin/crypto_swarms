@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-05-31
+
+### Completed
+- **CI fix: binary-file skip in scanners (#15)** — `scripts/ci/check_addresses.py` and `check_secrets.py` now skip binary files via null-byte sniff (first 8KB) plus extension allowlist (`.parquet`, `.db`, `.sqlite`, image/archive types). Swapped stale `data/*.csv` skip entries for current `data/*.parquet` paths.
+- **Test coverage:** added 3 pytest cases — null-byte detection, `.parquet` extension, secrets-on-binary. Test suite: 11 → 14 passing.
+- **End-to-end verification:** workflow_dispatch on branch + post-merge push both green after 3 consecutive `schedule` failures (runs #90–92).
+
+### Failed Approaches
+- None this session — root cause identified from the first failure-log read (`data/nft_floor_history.parquet: line 112: solana address Fmmn...xyzz`).
+
+### Accuracy / Metrics
+- Scheduled-run workflow: failing → passing (first green since 2026-05-30).
+- CI test count: 11 → 14 (3 new regression cases covering binary-file handling).
+
+### Known Limitations
+- Workflow only triggers on `schedule` / `push:main` / `workflow_dispatch` — PR pushes don't exercise CI, so binary-skip regressions could re-land silently before the next scheduled fire. Worth adding a `pull_request` trigger for the two scanner steps (low-cost, fast). Not done this session.
+
 ## 2026-04-09 / 2026-04-10
 
 ### Completed
