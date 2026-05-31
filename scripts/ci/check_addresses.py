@@ -60,8 +60,8 @@ SKIP_PATTERNS = [
     "pipeline-output/",
     "_extensions/",
     ".git/",
-    "data/price_history.csv",
-    "data/latest_prices.csv",
+    "data/price_history.parquet",
+    "data/nft_floor_history.parquet",
     "scripts/ci/check_addresses.py",  # this file, which mentions them
     "scripts/ci/check_secrets.py",     # this file, which mentions key patterns
     "scripts/ci/install-hooks.sh",     # example test address in help text
@@ -69,10 +69,25 @@ SKIP_PATTERNS = [
     "CHANGELOG.md",                    # may mention old patterns
 ]
 
+# Binary file extensions — random bytes can match base58/hex regexes.
+BINARY_EXTENSIONS = {".parquet", ".db", ".sqlite", ".png", ".jpg", ".jpeg",
+                     ".gif", ".pdf", ".zip", ".gz", ".tar", ".woff", ".woff2"}
+
 
 def should_skip(path):
     path_str = str(path)
     return any(pat in path_str for pat in SKIP_PATTERNS)
+
+
+def is_binary_file(path):
+    """Detect binary files via null-byte sniff of first 8KB."""
+    if Path(path).suffix.lower() in BINARY_EXTENSIONS:
+        return True
+    try:
+        with open(path, "rb") as fh:
+            return b"\x00" in fh.read(8192)
+    except (IsADirectoryError, FileNotFoundError, PermissionError):
+        return False
 
 
 def is_allowed(address):
@@ -130,6 +145,8 @@ def main():
         if should_skip(f):
             continue
         if not Path(f).exists():
+            continue
+        if is_binary_file(f):
             continue
 
         violations = scan_file(f)
