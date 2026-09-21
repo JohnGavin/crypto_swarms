@@ -46,6 +46,34 @@ DRY_RUN = os.environ.get("SWARMS_DRY_RUN", "true").lower() != "false"
 FORCE_ALERT = os.environ.get("CRYPTO_FORCE_ALERT", "false").lower() == "true"
 GH_REPO = os.environ.get("GH_REPO", "JohnGavin/crypto_swarms")
 
+# ---------- Notification policy: only a very volatile day gets through ----------
+# The pipeline's per-token triggers (robust z, Bollinger, liquidity, regime)
+# still run and still populate the report; they no longer send email by
+# themselves. A notification needs a market-wide severe day, or a real
+# stablecoin depeg, and then respects a cooldown.
+#
+# Calibration (2026-09-21, data/price_history.parquet, 284 snapshots since
+# 2026-04-12): the median absolute 24h move of the 12 core tokens peaked at
+# 9.72% in 5 months (>=8% on 8 snapshots), and the 2026-09-21 12:16 UTC alert
+# read about 10.0%. 12% sits above everything recorded; roughly 1-2 a year is
+# the target, but 5 months cannot confirm that rate. Override to tune.
+SEVERE_MEDIAN_ABS_CHANGE_PCT = float(os.environ.get("CRYPTO_SEVERE_MEDIAN_PCT", "12"))
+# Stablecoin depeg that counts as severe (the per-token trigger stays at 0.5%).
+SEVERE_DEPEG = float(os.environ.get("CRYPTO_SEVERE_DEPEG", "0.02"))
+# At most one notification per this many days: no email if any earlier
+# snapshot inside this window was already severe (see days_since_last_severe).
+ALERT_COOLDOWN_DAYS = float(os.environ.get("CRYPTO_ALERT_COOLDOWN_DAYS", "7"))
+HISTORY_PATH = Path("data/price_history.parquet")
+# Mirrors STABLECOINS in R/analysis_functions.R; history rows have no
+# is_stablecoin column, so the token name is the only signal available there.
+STABLECOIN_TOKENS = {"USDC", "USDT"}
+# Breadth needs enough tokens to be a median of a market, not of a handful.
+MIN_CORE_TOKENS = 8
+# SOL liquid-staking tokens track SOL, so counting them would weight SOL 3x.
+LIQUID_STAKING_TOKENS = {"JitoSOL", "mSOL"}
+
+SEVERE, CALM, INDETERMINATE = "SEVERE", "CALM", "INDETERMINATE"
+
 
 # ---------- Pipeline I/O ----------
 
@@ -70,27 +98,116 @@ def read_json(name):
 
 def build_agent_context(prices, analysis, alerts):
     triggered = analysis[analysis["trigger_alert"] == True]
+    is_stable = analysis["is_stablecoin"] == True if "is_stablecoin" in analysis else False
+    depegged = analysis[is_stable & (analysis["depeg_alert"] == True)] \
+        if "depeg_alert" in analysis else analysis.iloc[0:0]
     return {
         "alert_message": alerts,
         "n_triggered": int(len(triggered)),
         "tokens": prices[["token", "price_usd", "price_change_24h"]].to_dict("records"),
-        "stablecoins_triggered": (
-            triggered[["token", "price_usd"]].to_dict("records")
-            if len(triggered) > 0 else []
-        ),
+        "tokens_flagged": list(triggered["token"]),
+        # Only real stablecoin depegs. This used to hold every triggered token,
+        # which is why volatile tokens were reported as "depegged".
+        "stablecoins_triggered": depegged[["token", "price_usd"]].to_dict("records"),
+        "severity": None,
+        "severity_reasons": [],
         "data_source": prices["source"].iloc[0] if len(prices) > 0 else "unknown",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     }
 
 
+# ---------- Severity gate and cooldown ----------
+
+def market_severity(analysis):
+    """Is this a very volatile day? Returns (status, reasons).
+
+    SEVERE: a stablecoin depeg >= SEVERE_DEPEG, or the median absolute 24h move
+    of the core tokens >= SEVERE_MEDIAN_ABS_CHANGE_PCT.
+    CALM: assessed and neither holds.
+    INDETERMINATE: could not assess (missing columns, or too few core tokens
+    with a 24h change). A depeg finding is still determinate without breadth.
+    """
+    needed = {"token", "price_usd", "price_change_24h", "is_stablecoin"}
+    missing = sorted(needed - set(analysis.columns))
+    if missing:
+        return INDETERMINATE, ["analysis is missing columns: " + ", ".join(missing)]
+
+    reasons = []
+    stable = analysis[analysis["is_stablecoin"] == True]
+    for _, row in stable.iterrows():
+        deviation = abs(row["price_usd"] - 1.0)
+        if deviation >= SEVERE_DEPEG:
+            reasons.append("{} depeg {:.2%} from $1".format(row["token"], deviation))
+
+    core = analysis[
+        (analysis["is_stablecoin"] != True)
+        & ~analysis["token"].isin(LIQUID_STAKING_TOKENS)
+    ].dropna(subset=["price_change_24h"])
+    if len(core) < MIN_CORE_TOKENS:
+        if reasons:
+            return SEVERE, reasons
+        return INDETERMINATE, [
+            "only {} core tokens have a 24h change (need {})".format(len(core), MIN_CORE_TOKENS)
+        ]
+
+    median_move = float(core["price_change_24h"].abs().median())
+    if median_move >= SEVERE_MEDIAN_ABS_CHANGE_PCT:
+        reasons.append(
+            "market median |24h change| {:.1f}% across {} tokens (threshold {:.1f}%)".format(
+                median_move, len(core), SEVERE_MEDIAN_ABS_CHANGE_PCT
+            )
+        )
+    return (SEVERE if reasons else CALM), reasons
+
+
+def load_history(path=HISTORY_PATH):
+    """Read the committed price history. Returns (DataFrame, None) or (None, reason)."""
+    try:
+        return pd.read_parquet(path), None
+    except Exception as e:  # unreadable history is indeterminate, never "no earlier alert"
+        return None, "{}: {}".format(type(e).__name__, e)
+
+
+def days_since_last_severe(history, current_ts, now):
+    """Age in days of the newest EARLIER snapshot that was severe. (days, reason).
+
+    The cooldown is derived from the committed price history rather than from
+    stored alert state: the history is present on every run, needs no extra
+    permissions, and an email is sent only on the first severe snapshot after
+    ALERT_COOLDOWN_DAYS without one. (An earlier design read the newest `alert`
+    GitHub issue, but issue creation has failed with 403 since April because the
+    workflow lacks `issues: write`, so it would never have suppressed anything.)
+
+    days=None: could not be determined (reason says why), not "no earlier alert".
+    days=inf: determinate, no severe snapshot inside the cooldown window.
+    """
+    needed = {"token", "price_usd", "price_change_24h", "fetched_at"}
+    if history is None:
+        return None, "price history not readable"
+    missing = sorted(needed - set(history.columns))
+    if missing:
+        return None, "price history is missing columns: " + ", ".join(missing)
+
+    cutoff = pd.Timestamp(now) - pd.Timedelta(days=ALERT_COOLDOWN_DAYS)
+    window = history[(history["fetched_at"] < current_ts) & (history["fetched_at"] >= cutoff)].copy()
+    window["is_stablecoin"] = window["token"].isin(STABLECOIN_TOKENS)
+    newest_severe = None
+    for ts, snap in window.groupby("fetched_at"):
+        if market_severity(snap)[0] == SEVERE:
+            newest_severe = ts if newest_severe is None else max(newest_severe, ts)
+    if newest_severe is None:
+        return float("inf"), "no severe snapshot in the last {:.0f} days".format(ALERT_COOLDOWN_DAYS)
+    return (pd.Timestamp(now) - newest_severe).total_seconds() / 86400.0, \
+        "newest earlier severe snapshot {}".format(newest_severe.isoformat())
+
+
 # ---------- Alert formatters ----------
 
 def format_subject(context):
-    n = context["n_triggered"]
-    if n == 0:
+    reasons = context["severity_reasons"]
+    if not reasons:
         return "[crypto_swarms] No alerts"
-    tickers = ",".join(s["token"] for s in context["stablecoins_triggered"])
-    return "[crypto_swarms] ALERT: {} depeg ({})".format(tickers, n)
+    return "[crypto_swarms] SEVERE: " + "; ".join(reasons)
 
 
 def format_body_text(context):
@@ -100,12 +217,17 @@ def format_body_text(context):
         "",
         "Time: " + context["timestamp_utc"],
         "Source: " + context["data_source"],
-        "Alert: " + context["alert_message"],
+        "Why this was sent:",
+    ]
+    lines.extend("  - " + r for r in context["severity_reasons"])
+    lines.extend([
         "",
-        "Triggered: " + str(context["n_triggered"]),
+        "Per-token flags ({}): {}".format(
+            context["n_triggered"], ", ".join(context["tokens_flagged"]) or "none"
+        ),
         "",
         "Tokens:",
-    ]
+    ])
     for tok in context["tokens"]:
         change = tok.get("price_change_24h")
         change_str = " ({:+.2f}%)".format(change) if change is not None else ""
@@ -130,8 +252,10 @@ def format_body_html(context):
     )
     callout = (
         '<div style="background:#fff3cd;border:1px solid #ffeeba;padding:10px;'
-        'border-radius:4px;"><strong>ALERT:</strong> {}</div>'.format(context["alert_message"])
-        if context["n_triggered"] > 0
+        'border-radius:4px;"><strong>SEVERE:</strong> {}</div>'.format(
+            "; ".join(context["severity_reasons"])
+        )
+        if context["severity_reasons"]
         else '<div style="color:#666;">No alerts triggered.</div>'
     )
     return """<html><body style="font-family:sans-serif;">
@@ -304,18 +428,39 @@ def main():
 
     context = build_agent_context(prices, analysis, alerts)
 
-    if FORCE_ALERT and context["n_triggered"] == 0:
-        print("\n[FORCE_ALERT=true] Synthesizing test alert")
-        context["n_triggered"] = 1
-        context["stablecoins_triggered"] = [{"token": "TEST", "price_usd": 0.95}]
-        context["alert_message"] = "TEST ALERT — synthetic depeg for transport testing"
+    status, reasons = market_severity(analysis)
+    context["severity"] = status
+    context["severity_reasons"] = reasons
+    print("\nSeverity: {} {}".format(status, reasons))
+
+    if FORCE_ALERT:
+        print("\n[FORCE_ALERT=true] Synthesizing test alert (gate and cooldown bypassed)")
+        context["severity"] = SEVERE
+        context["severity_reasons"] = ["TEST ALERT: synthetic, for transport testing"]
+    elif status != SEVERE:
+        # CALM and INDETERMINATE both send nothing, but they are reported
+        # differently: INDETERMINATE means the gate could not be evaluated.
+        print("\nNo notification: per-token flags={} but market severity is {}.".format(
+            context["n_triggered"], status
+        ))
+        return
+    else:
+        history, history_err = load_history()
+        if history is None:
+            age, why = None, history_err
+        else:
+            age, why = days_since_last_severe(
+                history, prices["fetched_at"].max(), datetime.now(timezone.utc)
+            )
+        if age is None:
+            print("\n[cooldown] INDETERMINATE ({}): not suppressing a severe alert.".format(why))
+        elif age < ALERT_COOLDOWN_DAYS:
+            print("\nNo notification: severe, but the last alert was {:.1f} days ago "
+                  "(cooldown {:.0f} days; {}).".format(age, ALERT_COOLDOWN_DAYS, why))
+            return
 
     print("\nAgent context:")
     print(json.dumps(context, indent=2, default=str))
-
-    if context["n_triggered"] == 0:
-        print("\nNo action needed (no triggered alerts).")
-        return
 
     # Build alert artifacts
     subject = format_subject(context)

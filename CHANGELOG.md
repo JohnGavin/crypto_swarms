@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-09-21
+
+### Changed
+- **Notifications now need a severe market-wide day.** Per-token triggers (robust z, Bollinger, liquidity, regime) still run and still populate the report, but no longer send email on their own. An email is sent only when the median absolute 24h move of the 12 core tokens is >= 12% (`CRYPTO_SEVERE_MEDIAN_PCT`) or a stablecoin is >= 2% off $1 (`CRYPTO_SEVERE_DEPEG`), at most once per 7 days (`CRYPTO_ALERT_COOLDOWN_DAYS`, derived from `data/price_history.parquet`). Replay over the 284 snapshots since 2026-04-12: 0 emails at 12%, 5 at 8%.
+- If the gate cannot be evaluated it says INDETERMINATE and sends nothing; if the cooldown cannot be evaluated a severe alert is still sent.
+
+### Fixed
+- Emails called every triggered token "depegged": `stablecoins_triggered` held all triggered tokens. It now holds real stablecoin depegs only; the subject and body carry the actual reason.
+
+### Known
+- Alert GitHub issues have failed with 403 since April (the workflow lacks `issues: write`), so only email is sent. Not changed here.
+
 ## 2026-04-09 / 2026-04-10
 
 ### Completed
