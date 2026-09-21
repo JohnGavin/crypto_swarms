@@ -15,9 +15,28 @@
 library(targets)
 library(crew)
 
+# Worker lifecycle (issues #12, #13, #14):
+#   - seconds_idle is crew's lifecycle setting for orphan prevention: an idle
+#     worker exits after this long, so an orphan cannot linger.
+#   - seconds_wall is only a soft wall-time cap (crew 1.3.0 docs; default Inf).
+#     It is a generous, overridable backstop, NOT an orphan fix. Override with
+#     CRYPTO_SWARMS_WORKER_WALL_SECONDS (seconds; "Inf" disables the cap).
+worker_wall_seconds <- as.numeric(
+  Sys.getenv("CRYPTO_SWARMS_WORKER_WALL_SECONDS", unset = "43200")  # 12h
+)
+if (is.na(worker_wall_seconds) || worker_wall_seconds <= 0) {
+  cli::cli_abort(
+    "{.envvar CRYPTO_SWARMS_WORKER_WALL_SECONDS} must be a positive number or {.val Inf}."
+  )
+}
+
 tar_option_set(
   packages = c("dplyr", "arrow", "pointblank", "purrr"),
-  controller = crew_controller_local(workers = 2L, seconds_wall = 3600),
+  controller = crew_controller_local(
+    workers = 2L,
+    seconds_idle = 300,
+    seconds_wall = worker_wall_seconds
+  ),
   memory = "transient",
   garbage_collection = TRUE,
   format = "rds"
