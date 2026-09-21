@@ -134,6 +134,40 @@ def test_secrets_skip_env_example():
     assert rc == 0, out
 
 
+# ---- binary-file skip (regression: parquet false positive, run #92) ----
+
+def test_addresses_skip_binary_by_null_bytes():
+    """A binary file containing base58-shaped bytes must not trigger the scanner."""
+    fake_addr = b"So11111111111111111111111111111111111111113"
+    payload = b"PAR1\x00\x00" + fake_addr + b"\x00\x00\x00 some\x00bytes"
+    with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
+        f.write(payload)
+        f.flush()
+        rc, out, _ = run_check("scripts/ci/check_addresses.py", [f.name])
+    Path(f.name).unlink()
+    assert rc == 0, out
+
+def test_addresses_skip_binary_by_extension():
+    """A .parquet file must be skipped even if its bytes look like base58."""
+    fake_addr = b"So11111111111111111111111111111111111111113"
+    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
+        f.write(b"PAR1" + fake_addr + b"PAR1")  # no null bytes; extension catches it
+        f.flush()
+        rc, out, _ = run_check("scripts/ci/check_addresses.py", [f.name])
+    Path(f.name).unlink()
+    assert rc == 0, out
+
+def test_secrets_skip_binary_files():
+    """check_secrets must also skip binary files (elevenlabs 32-hex regex hits parquet bytes)."""
+    payload = b"PAR1\x00" + (b"abcdef0123456789" * 4) + b"\x00 binary"
+    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
+        f.write(payload)
+        f.flush()
+        rc, out, _ = run_check("scripts/ci/check_secrets.py", [f.name])
+    Path(f.name).unlink()
+    assert rc == 0, out
+
+
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))
