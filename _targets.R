@@ -44,6 +44,7 @@ tar_option_set(
 
 # Source pure R functions
 tar_source("R/analysis_functions.R")
+tar_source("R/nft_functions.R")
 
 list(
   # --- Inputs (parquet files written by the rn node) ---
@@ -70,6 +71,14 @@ list(
   tar_target(regime_rollmad_tbl, regime_rollmad(history_prepped, window_days = 14)),
   tar_target(regime_transitions_tbl, regime_transitions(regime_rollmad_tbl)),
   tar_target(regime_latest_tbl, regime_latest(regime_transitions_tbl)),
+
+  # --- NFT floor price anomaly detection (issue #9) ---
+  tar_target(nft_history_file, "tmp_nft_history.parquet", format = "file"),
+  tar_target(nft_history_raw, arrow::read_parquet(nft_history_file)),
+  tar_target(nft_history_prepped, prepare_nft_history(nft_history_raw)),
+  tar_target(nft_summary_14d, compute_nft_window_summary(nft_history_prepped)),
+  tar_target(nft_latest_tbl, nft_latest_snapshot(nft_history_prepped)),
+  tar_target(nft_alert_summary, compute_nft_alerts(nft_latest_tbl, nft_summary_14d)),
 
   # --- Final alert table ---
   tar_target(

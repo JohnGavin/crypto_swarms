@@ -31,6 +31,19 @@ p = pipeline {
     serializer = ^arrow
   )
 
+  -- 1c. R: read accumulated NFT floor-price history from Parquet
+  --    Written by scripts/fetch_nft_floors.py (issue #9). Analysed inside
+  --    the same targets DAG as prices/history -- see nft_alert_summary in
+  --    _targets.R.
+  nft_history = rn(
+    command = <{
+      library(arrow)
+      nft_history <- arrow::read_parquet("data/nft_floor_history.parquet")
+    }>,
+    include = ["data/nft_floor_history.parquet"],
+    serializer = ^arrow
+  )
+
   -- 2. R: analyse prices via targets + crew DAG (Phase 2)
   --    Inside the rn node:
   --      (a) Write the deserialized prices/history tables to parquet files
@@ -51,19 +64,46 @@ p = pipeline {
         Sys.setenv(HOME = tmp_home)
       }
 
-      arrow::write_parquet(prices,  "tmp_prices.parquet")
-      arrow::write_parquet(history, "tmp_history.parquet")
+      arrow::write_parquet(prices,      "tmp_prices.parquet")
+      arrow::write_parquet(history,     "tmp_history.parquet")
+      arrow::write_parquet(nft_history, "tmp_nft_history.parquet")
 
       tar_make(reporter = "silent")
       analysis <- tar_read(alert_summary)
     }>,
     deserializer = [
-      prices:  ^arrow,
-      history: ^arrow
+      prices:      ^arrow,
+      history:     ^arrow,
+      nft_history: ^arrow
     ],
     include = [
       "_targets.R",
       "R/analysis_functions.R"
+    ],
+    serializer = ^arrow
+  )
+
+  -- 2b. R: NFT floor-price alert table (issue #9). A separate, lightweight
+  --    node rather than a second target of `analysis`'s targets DAG: 7
+  --    collections doesn't need crew parallelism, and (see R/nft_functions.R
+  --    header) a node whose `include` names a file containing the substring
+  --    "analysis" is wrongly wired as depending on the `analysis` node by
+  --    T's node-dependency inference -- reproduced directly, worked around
+  --    by keeping this node's only include free of that substring.
+  nft_alerts = rn(
+    command = <{
+      library(dplyr)
+      source("R/nft_functions.R")
+      nft_prepped <- prepare_nft_history(nft_history)
+      nft_summary <- compute_nft_window_summary(nft_prepped)
+      nft_latest  <- nft_latest_snapshot(nft_prepped)
+      nft_alerts  <- compute_nft_alerts(nft_latest, nft_summary)
+    }>,
+    deserializer = [
+      nft_history: ^arrow
+    ],
+    include = [
+      "R/nft_functions.R"
     ],
     serializer = ^arrow
   )
