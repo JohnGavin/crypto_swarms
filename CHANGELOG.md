@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-22
+
+### Added
+- **NFT floor-price anomaly detection** (issue #9). `scripts/fetch_nft_floors.py` has fetched and committed `data/nft_floor_history.parquet` since April, but nothing analysed it. Added the same robust MAD z-score pattern used for token prices, applied to `floor_sol` per collection over a 14-day window (longer than the 7d token default, per `docs/REGIME_DETECTION_PLAN.md`'s noise caveat): `R/nft_functions.R` (`prepare_nft_history`, `compute_nft_window_summary`, `nft_latest_snapshot`, `compute_nft_alerts`), a `nft_alerts` T node in `src/pipeline.t`, and a new "NFT Floor Prices" report section.
+- New `nft_alerts` T node is deliberately lightweight (no targets/crew) and deliberately does NOT include `R/analysis_functions.R`: a node whose include list names a file containing the substring "analysis" is wrongly treated by T's dependency inference as depending on the sibling node literally named `analysis`, causing a `readRDS(".../analysis/artifact") : read error`. Reproduced directly; see `R/nft_functions.R`'s header comment. Filing upstream is a follow-up, not done here.
+- Not wired into email: per the 2026-09-21 change (severe-day gate), a single collection's floor drop does not meet the "very volatile day" bar. It surfaces in the report only.
+
+### Known (found while testing, not fixed here)
+- The "Alert Status" section's plain-text alert string (built in `src/pipeline.t`'s `alerts` pyn step, feeding both the report and `scripts/swarms_agent.py`'s pre-2026-09-21 path) has the same "every triggered token labelled as a depeg" bug fixed in `scripts/swarms_agent.py` on 2026-09-21 — reproduced live in this session's test render (KMNO, a volatile token, formatted as `"(depeg: ...)"`). Not fixed in this pass; scope was #9.
+
 ## 2026-09-21
 
 ### Changed
