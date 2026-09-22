@@ -109,18 +109,39 @@ p = pipeline {
   )
 
   -- 3. Python: format alerts (plain text for Phase 1, Swarms agent in Phase 2)
+  --
+  --    Bug fixed 2026-09-22: this formatter used to label EVERY triggered
+  --    token as a depeg (e.g. a volatile token like DRIFT showed as
+  --    "(depeg: 0.98)"), regardless of which of the 4 independent triggers
+  --    in compute_alerts() actually fired. Same class of bug as the one
+  --    fixed in scripts/swarms_agent.py on 2026-09-21 (stablecoins_triggered
+  --    held every triggered token there), just in this separate formatter.
+  --    Now names the real reason per row.
   alerts = pyn(
     command = <{
 import pandas as pd
 from datetime import datetime, timezone
+
+def alert_reason(row):
+    if bool(row.get("is_stablecoin")) and bool(row.get("depeg_alert")):
+        return "depeg: {:.4f} from $1".format(abs(row["price_usd"] - 1.0))
+    if bool(row.get("price_anomaly")):
+        return "price anomaly (robust z-score)"
+    if bool(row.get("bb_break")):
+        return "Bollinger band break"
+    if bool(row.get("liquidity_alert")):
+        return "liquidity drop"
+    if bool(row.get("regime_shock")):
+        return "volatility regime shock"
+    return "triggered (reason not classified)"
 
 triggered = analysis[analysis["trigger_alert"] == True]
 
 if len(triggered) > 0:
     lines = ["ALERT at " + datetime.now(timezone.utc).strftime("%H:%M UTC") + ":"]
     for _, row in triggered.iterrows():
-        line = "  {}: USD {:.4f} (depeg: {:.4f})".format(
-            row["token"], row["price_usd"], abs(row["price_usd"] - 1.0)
+        line = "  {}: USD {:.4f} ({})".format(
+            row["token"], row["price_usd"], alert_reason(row)
         )
         lines.append(line)
     alerts = "\n".join(lines)

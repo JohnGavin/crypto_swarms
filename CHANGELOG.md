@@ -7,8 +7,8 @@
 - New `nft_alerts` T node is deliberately lightweight (no targets/crew) and deliberately does NOT include `R/analysis_functions.R`: a node whose include list names a file containing the substring "analysis" is wrongly treated by T's dependency inference as depending on the sibling node literally named `analysis`, causing a `readRDS(".../analysis/artifact") : read error`. Reproduced directly; see `R/nft_functions.R`'s header comment. Filing upstream is a follow-up, not done here.
 - Not wired into email: per the 2026-09-21 change (severe-day gate), a single collection's floor drop does not meet the "very volatile day" bar. It surfaces in the report only.
 
-### Known (found while testing, not fixed here)
-- The "Alert Status" section's plain-text alert string (built in `src/pipeline.t`'s `alerts` pyn step, feeding both the report and `scripts/swarms_agent.py`'s pre-2026-09-21 path) has the same "every triggered token labelled as a depeg" bug fixed in `scripts/swarms_agent.py` on 2026-09-21 — reproduced live in this session's test render (KMNO, a volatile token, formatted as `"(depeg: ...)"`). Not fixed in this pass; scope was #9.
+### Fixed
+- `src/pipeline.t`'s `alerts` pyn step (feeds the report's "Alert Status" section) had the same "every triggered token labelled as a depeg" bug fixed in `scripts/swarms_agent.py` on 2026-09-21, in a separate formatter. `alert_reason()` now names the actual trigger per row (depeg / price anomaly / Bollinger break / liquidity drop / regime shock). Verified live: BONK "volatility regime shock", DRIFT "liquidity drop", KMNO "price anomaly (robust z-score)", USDT "liquidity drop" — none mislabelled "depeg". T-lang bug from the NFT work above filed upstream: [b-rodrigues/tlang#527](https://github.com/b-rodrigues/tlang/issues/527).
 
 ## 2026-09-21
 
