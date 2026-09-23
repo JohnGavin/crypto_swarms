@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-23
+
+### Added
+- **Regime detection Phase R2: change-point method + consensus voting** (issue #19 P3). `docs/REGIME_DETECTION_PLAN.md`'s phased rollout shipped only Phase R1 (rolling MAD) so far; #19 P3 asks to test whether macro covariates add signal to "regime consensus", but no consensus existed yet -- only a single method. `R/regime_changepoint.R` adds Method 3 (`changepoint::cpt.var()` PELT on log-returns, segments tertile-classified by their own MAD) and `regime_consensus()` (N-method majority vote + `regime_confidence`, written for N methods so a future 3rd vote -- e.g. HMM, Phase R3 -- is a one-line change at the call site). `_targets.R` now drives `regime_latest_tbl`/`regime_shock` off `regime_consensus` instead of the raw Phase R1 `regime_mad`. `regime_latest()` generalised with a `regime_col` param (default unchanged, back-compat with existing Phase R1 callers/tests).
+- 16 new tests (`tests/testthat/test-regime-changepoint.R`, 31.25% snapshot ratio) plus `tproject.toml`'s `changepoint` R dependency.
+- Verified end-to-end on live data: `t run src/pipeline.t` -> 6/6 nodes built, `alert_summary` target carries real `regime_consensus`/`regime_confidence` values (stablecoins correctly NA/excluded; genuine method-disagreement rows correctly show confidence 0.5, e.g. KMNO, JTO).
+- Macro covariates themselves are NOT wired in by this work -- that is the next step now that a consensus exists to test them against, and is separate, not-yet-started work.
+
+### Fixed
+- `tproject.toml`'s `[py-dependencies]` never declared `httpx`, even though `flake.nix`'s Python environment has carried it since before this branch (used by `fetch_prices.py`, `swarms_agent.py`, `fetch_nft_floors.py`, `backfill_history.py`, `historical_contract.py`). `flake.nix` is the single source of truth's *output*, not its source -- `tproject.toml` is -- so running `t update` for the `changepoint` dependency above silently regenerated `flake.nix` without `httpx`, which would have broken every Python fetch script's next `nix develop` entry. Declared `httpx` in `tproject.toml` instead of hand-patching `flake.nix`.
+
 ## 2026-09-22
 
 ### Added
