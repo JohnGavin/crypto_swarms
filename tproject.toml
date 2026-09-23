@@ -9,7 +9,7 @@ packages = ["dplyr", "arrow", "slider", "ggplot2", "jsonlite", "knitr", "reticul
 
 [py-dependencies]
 version = "python313"
-packages = ["pandas", "pyarrow", "plotly", "pytest"]
+packages = ["httpx", "pandas", "pyarrow", "plotly", "pytest"]
 
 [additional-tools]
 packages = ["quarto"]
