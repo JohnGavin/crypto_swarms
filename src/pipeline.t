@@ -83,30 +83,10 @@ p = pipeline {
     serializer = ^arrow
   )
 
-  -- 2b. R: NFT floor-price alert table (issue #9). A separate, lightweight
-  --    node rather than a second target of `analysis`'s targets DAG: 7
-  --    collections doesn't need crew parallelism, and (see R/nft_functions.R
-  --    header) a node whose `include` names a file containing the substring
-  --    "analysis" is wrongly wired as depending on the `analysis` node by
-  --    T's node-dependency inference -- reproduced directly, worked around
-  --    by keeping this node's only include free of that substring.
-  nft_alerts = rn(
-    command = <{
-      library(dplyr)
-      source("R/nft_functions.R")
-      nft_prepped <- prepare_nft_history(nft_history)
-      nft_summary <- compute_nft_window_summary(nft_prepped)
-      nft_latest  <- nft_latest_snapshot(nft_prepped)
-      nft_alerts  <- compute_nft_alerts(nft_latest, nft_summary)
-    }>,
-    deserializer = [
-      nft_history: ^arrow
-    ],
-    include = [
-      "R/nft_functions.R"
-    ],
-    serializer = ^arrow
-  )
+  -- 2b. NFT floor-price alerts: disabled 2026-09-23 (not of interest).
+  --    The `nft_alerts` node and the report section were removed; see the
+  --    follow-up issue for dropping the NFT fetch/targets entirely.
+  --    R/nft_functions.R and its tests are kept for now.
 
   -- 3. Python: format alerts (plain text for Phase 1, Swarms agent in Phase 2)
   --

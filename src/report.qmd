@@ -27,13 +27,11 @@ prices_path     <- read_node("prices")
 analysis_path   <- read_node("analysis")
 history_path    <- read_node("history")
 alerts_path     <- read_node("alerts")
-nft_alerts_path <- read_node("nft_alerts")
 
 prices     <- arrow::read_ipc_file(prices_path)
 analysis   <- arrow::read_ipc_file(analysis_path)
 history    <- arrow::read_ipc_file(history_path)
 alerts     <- jsonlite::fromJSON(alerts_path)
-nft_alerts <- arrow::read_ipc_file(nft_alerts_path)
 ```
 
 ## Alert Status
@@ -75,39 +73,6 @@ analysis |>
   kable(
     col.names = c("Token", "Price (USD)", "Deviation from $1", "Status"),
     caption = "Stablecoin depeg check (threshold: 0.005)"
-  )
-```
-
-## NFT Floor Prices
-
-```{r nft-section, echo=FALSE, results='asis'}
-n_nft_alert <- sum(nft_alerts$floor_drop_alert, na.rm = TRUE)
-callout_class <- if (n_nft_alert > 0) "callout-warning" else "callout-note"
-cat(sprintf('::: {.%s}\n', callout_class))
-if (n_nft_alert > 0) {
-  cat("**", n_nft_alert, " collection(s) with a floor drop >3 MADs below the 14-day median.**\n", sep = "")
-} else {
-  cat("**No NFT floor-price anomalies.**\n")
-}
-cat(':::\n')
-```
-
-```{r nft-table, echo=FALSE}
-nft_alerts |>
-  mutate(
-    floor_sol = round(floor_sol, 4),
-    floor_median_14d = round(floor_median_14d, 4),
-    floor_zscore = round(floor_zscore, 2),
-    status = if_else(floor_drop_alert, "ALERT", "OK")
-  ) |>
-  select(collection, floor_sol, floor_median_14d, floor_zscore, listed_count, status) |>
-  arrange(desc(floor_zscore)) |>
-  kable(
-    col.names = c("Collection", "Floor (SOL)", "14d Median (SOL)", "Z-score", "Listed", "Status"),
-    caption = sprintf(
-      "Floor prices for %d collections (source: Magic Eden). Z-score is (median - floor) / MAD over a 14-day window; alert threshold 3.0.",
-      nrow(nft_alerts)
-    )
   )
 ```
 
