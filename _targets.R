@@ -45,6 +45,7 @@ tar_option_set(
 # Source pure R functions
 tar_source("R/analysis_functions.R")
 tar_source("R/nft_functions.R")
+tar_source("R/regime_changepoint.R")
 
 list(
   # --- Inputs (parquet files written by the rn node) ---
@@ -69,8 +70,35 @@ list(
 
   # --- Regime detection (Phase R1: rolling MAD) ---
   tar_target(regime_rollmad_tbl, regime_rollmad(history_prepped, window_days = 14)),
-  tar_target(regime_transitions_tbl, regime_transitions(regime_rollmad_tbl)),
-  tar_target(regime_latest_tbl, regime_latest(regime_transitions_tbl)),
+
+  # --- Regime detection (Phase R2, issue #19 P3: change-point + consensus) ---
+  # regime_rollmad_tbl and regime_changepoint_tbl are two independent methods
+  # over the SAME (token, fetched_at) grid; regime_consensus() majority-votes
+  # across them. This is the "regime consensus" #19 P3 needs to exist before
+  # testing whether a macro covariate adds signal to it -- see the plan doc's
+  # "Consensus regime (MANDATORY)" section.
+  tar_target(regime_changepoint_tbl, regime_changepoint(history_prepped)),
+  tar_target(
+    regime_methods_tbl,
+    regime_rollmad_tbl |>
+      dplyr::select(token, fetched_at, regime_mad) |>
+      dplyr::full_join(
+        regime_changepoint_tbl |> dplyr::select(token, fetched_at, regime_cpt),
+        by = c("token", "fetched_at")
+      )
+  ),
+  tar_target(
+    regime_consensus_tbl,
+    regime_consensus(regime_methods_tbl, method_cols = c("regime_mad", "regime_cpt"))
+  ),
+  tar_target(
+    regime_transitions_tbl,
+    regime_transitions(regime_consensus_tbl, regime_col = "regime_consensus")
+  ),
+  tar_target(
+    regime_latest_tbl,
+    regime_latest(regime_transitions_tbl, regime_col = "regime_consensus")
+  ),
 
   # --- NFT floor price anomaly detection (issue #9) ---
   tar_target(nft_history_file, "tmp_nft_history.parquet", format = "file"),
