@@ -46,6 +46,7 @@ tar_option_set(
 tar_source("R/analysis_functions.R")
 tar_source("R/nft_functions.R")
 tar_source("R/regime_changepoint.R")
+tar_source("R/progression_ladder.R")
 
 list(
   # --- Inputs (parquet files written by the rn node) ---
@@ -118,5 +119,11 @@ list(
                        transition_direction == "up",
         trigger_alert = trigger_alert | regime_shock
       )
-  )
+  ),
+
+  # --- Progression ladder tracker (issue #18, gap G9) ---
+  # No dependency on prices/history: every phase is currently INDETERMINATE
+  # because none of G1-G8's data sources exist yet. See R/progression_ladder.R
+  # for how this changes as gaps close.
+  tar_target(progression_ladder_tbl, progression_ladder_status())
 )
