@@ -88,6 +88,20 @@ p = pipeline {
   --    follow-up issue for dropping the NFT fetch/targets entirely.
   --    R/nft_functions.R and its tests are kept for now.
 
+  -- 2c. Progression ladder tracker (issue #18, gap G9). Deliberately
+  --    standalone: no targets/crew, no prices/history dependency (every
+  --    phase is currently INDETERMINATE, so there is nothing live to read
+  --    yet -- see R/progression_ladder.R). Kept separate from the
+  --    `analysis` node so this addition doesn't touch existing nodes.
+  progression_ladder = rn(
+    command = <{
+      source("R/progression_ladder.R")
+      progression_ladder <- progression_ladder_status()
+    }>,
+    include = ["R/progression_ladder.R"],
+    serializer = ^arrow
+  )
+
   -- 3. Python: format alerts (plain text for Phase 1, Swarms agent in Phase 2)
   --
   --    Bug fixed 2026-09-22: this formatter used to label EVERY triggered
