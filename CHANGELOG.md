@@ -13,6 +13,9 @@
 ### Fixed
 - `tproject.toml`'s `[py-dependencies]` never declared `httpx`, even though `flake.nix`'s Python environment has carried it since before this branch (used by `fetch_prices.py`, `swarms_agent.py`, `fetch_nft_floors.py`, `backfill_history.py`, `historical_contract.py`). `flake.nix` is the single source of truth's *output*, not its source -- `tproject.toml` is -- so running `t update` for the `changepoint` dependency above silently regenerated `flake.nix` without `httpx`, which would have broken every Python fetch script's next `nix develop` entry. Declared `httpx` in `tproject.toml` instead of hand-patching `flake.nix`.
 
+### Removed
+- **NFT floor-price tracking** (issue #26). NFTs are not of interest; NFT alerts were already disabled 2026-09-23 (the `nft_alerts` node + report section). This removes the rest: the `.github/workflows/scheduled-run.yml` fetch step, `scripts/run.sh`'s call, `scripts/fetch_nft_floors.py`, the `nft_history` T node and `analysis` node's `nft_history` deserializer, `_targets.R`'s six `nft_*` targets, `R/nft_functions.R` + its tests/snapshots, and the NFT path entries in `scripts/ci/check_addresses.py`/`check_secrets.py`. `data/nft_floor_history.parquet` is untracked (`git rm --cached`) -- kept in git history, no longer updated. Verified: `t run src/pipeline.t` -> 6/6 nodes built (down from 7, correctly), rendered report has zero errors/NULLs. Closes the loop with #9.
+
 ## 2026-09-22
 
 ### Added

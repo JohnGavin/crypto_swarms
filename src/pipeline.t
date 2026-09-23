@@ -31,19 +31,6 @@ p = pipeline {
     serializer = ^arrow
   )
 
-  -- 1c. R: read accumulated NFT floor-price history from Parquet
-  --    Written by scripts/fetch_nft_floors.py (issue #9). Analysed inside
-  --    the same targets DAG as prices/history -- see nft_alert_summary in
-  --    _targets.R.
-  nft_history = rn(
-    command = <{
-      library(arrow)
-      nft_history <- arrow::read_parquet("data/nft_floor_history.parquet")
-    }>,
-    include = ["data/nft_floor_history.parquet"],
-    serializer = ^arrow
-  )
-
   -- 2. R: analyse prices via targets + crew DAG (Phase 2)
   --    Inside the rn node:
   --      (a) Write the deserialized prices/history tables to parquet files
@@ -66,15 +53,13 @@ p = pipeline {
 
       arrow::write_parquet(prices,      "tmp_prices.parquet")
       arrow::write_parquet(history,     "tmp_history.parquet")
-      arrow::write_parquet(nft_history, "tmp_nft_history.parquet")
 
       tar_make(reporter = "silent")
       analysis <- tar_read(alert_summary)
     }>,
     deserializer = [
-      prices:      ^arrow,
-      history:     ^arrow,
-      nft_history: ^arrow
+      prices:  ^arrow,
+      history: ^arrow
     ],
     include = [
       "_targets.R",
@@ -82,11 +67,6 @@ p = pipeline {
     ],
     serializer = ^arrow
   )
-
-  -- 2b. NFT floor-price alerts: disabled 2026-09-23 (not of interest).
-  --    The `nft_alerts` node and the report section were removed; see the
-  --    follow-up issue for dropping the NFT fetch/targets entirely.
-  --    R/nft_functions.R and its tests are kept for now.
 
   -- 2c. Progression ladder tracker (issue #18, gap G9). Deliberately
   --    standalone: no targets/crew, no prices/history dependency (every
