@@ -31,3 +31,6 @@ data/trades*.csv
 data/pnl*.csv
 __pycache__/
 .pytest_cache/
+
+# t update's own backup, auto-created each run
+flake.nix.bak

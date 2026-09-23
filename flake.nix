@@ -1,5 +1,5 @@
 {
-  description = "crypto_alert_t — Crypto price alerts with Python APIs + R analysis";
+  description = "crypto_alert_t — a T data analysis project";
 
   inputs = {
     nixpkgs.url = "github:rstats-on-nix/nixpkgs/2026-04-04";
@@ -37,11 +37,12 @@
             duckplyr
             testthat
             usethis
+            changepoint
           ];
         };
 
-        # Python environment (httpx for fetch script + pandas/pyarrow/plotly for pipeline)
-        py-env = pkgs.python313.withPackages (ps: with ps; [
+        # Python environment
+        py-env = pkgs.python313.withPackages (python-pkgs: with python-pkgs; [
           httpx
           pandas
           pyarrow
@@ -49,7 +50,7 @@
           pytest
         ]);
 
-        # Additional tools
+        # Additional Tools
         additionalTools = with pkgs; [
           quarto
         ];
@@ -67,11 +68,14 @@
             echo "T Project: crypto_alert_t"
             echo "=================================================="
             echo ""
-            echo "Phase 1: Python fetch -> R analyse -> Python alert"
+            echo "Available commands:"
+            echo "  t repl              - Start T REPL"
+            echo "  t run <file>        - Run a T file"
+            echo "  t test              - Run tests"
             echo ""
-            echo "Commands:"
-            echo "  t run src/pipeline.t   - Run the pipeline"
-            echo "  t repl                 - Interactive REPL"
+            echo "To add dependencies:"
+            echo "  * Add them to tproject.toml"
+            echo "  * Run 't update' to sync flake.nix"
             echo ""
             mkdir -p _extensions
             expected_quarto_ext="${t-lang.packages.${system}.default}/share/tlang/quarto/tlang"
@@ -96,6 +100,8 @@
             else
               provision_quarto_ext
             fi
+            echo "Quarto is enabled via [additional-tools]. Render {t} chunks with filters: [tlang]."
+            echo ""
           '';
         };
       }
