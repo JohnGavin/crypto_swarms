@@ -6,10 +6,6 @@ echo ">>> Fetching token prices..."
 python3 scripts/fetch_prices.py
 
 echo ""
-echo ">>> Fetching NFT floor prices..."
-python3 scripts/fetch_nft_floors.py
-
-echo ""
 echo ">>> Running T pipeline..."
 t run src/pipeline.t
 

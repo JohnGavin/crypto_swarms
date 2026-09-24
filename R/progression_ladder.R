@@ -51,7 +51,8 @@ PROGRESSION_LADDER_PHASES <- tibble::tribble(
 #'
 #' Every phase is assessed against what this repo's pipeline actually
 #' measures today (16 Solana token prices/liquidity, stablecoin depeg,
-#' NFT floors, regime detection -- see docs/REGIME_DETECTION_PLAN.md). None
+#' regime detection -- see docs/REGIME_DETECTION_PLAN.md; NFT floor
+#' tracking was removed, issue #26). None
 #' of G1-G8's planned data sources are built yet, so every row currently
 #' resolves to INDETERMINATE with a `source` naming the gap that would need
 #' to close first. This function has no data dependency (reads no upstream
