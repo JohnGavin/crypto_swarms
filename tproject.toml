@@ -5,14 +5,14 @@ description = "Crypto price alerts: Python fetches via Solana APIs, R analyses w
 [dependencies]
 
 [r-dependencies]
-packages = ["dplyr", "arrow", "slider", "ggplot2", "jsonlite", "knitr", "reticulate", "pointblank", "targets", "crew", "duckplyr", "testthat", "usethis"]
+packages = ["dplyr", "arrow", "slider", "ggplot2", "jsonlite", "knitr", "reticulate", "pointblank", "targets", "crew", "duckplyr", "testthat", "usethis", "rmarkdown"]
 
 [py-dependencies]
 version = "python313"
-packages = ["httpx", "pandas", "pyarrow", "plotly", "pytest"]
+packages = ["httpx", "pandas", "pyarrow", "plotly", "pytest", "ipykernel", "nbclient", "nbformat", "pyyaml"]
 
 [additional-tools]
-packages = ["quarto"]
+packages = ["quarto", "which"]
 
 [t]
 min_version = "0.55.2"
