@@ -36,6 +36,7 @@
           duckplyr
           testthat
           usethis
+          rmarkdown
         ];
 
         # R environment
@@ -76,6 +77,10 @@
           pyarrow
           plotly
           pytest
+          ipykernel
+          nbclient
+          nbformat
+          pyyaml
         ]);
 
         # Julia environment
@@ -84,6 +89,7 @@
         # Additional Tools
         additionalTools = with pkgs; [
           quarto
+          which
         ];
       in
       {
