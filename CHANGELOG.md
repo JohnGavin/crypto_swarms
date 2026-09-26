@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-09-26
+
+### Changed
+- **Upgraded T 0.51.2 -> 0.55.2** (issue #25). `flake.nix`/`flake.lock` regenerated with `t update` (v0.55.2 binary, clean tree) and locked to the v0.55.2 tag commit; `tproject.toml` `min_version` = 0.55.2.
+- `^arrow` serializer/deserializer renamed `^ipc` throughout `src/pipeline.t` (0.55.0 renamed it with no alias; a leftover `^arrow` only fails at build time). `swarms_agent.py` still reads the artifacts with `pyarrow.ipc` unchanged.
+- `tproject.toml` now declares what 0.55.2 refuses to build without, for the `report` Quarto node: `rmarkdown`; `ipykernel`, `nbclient`, `nbformat`, `pyyaml`; `which`. `jsonlite` was already declared.
+- `.gitignore`: the 0.55.x shellHook writes `.t_julia_depot/`, `.t_python_guard/`, `.t_r_profile/` into the project root; untracked, they make `t update` refuse to run.
+
+### Fixed
+- `httpx` was only ever hand-added to `flake.nix`, never declared in `tproject.toml`, so regenerating the flake dropped it and `scripts/fetch_prices.py` failed with `ModuleNotFoundError`. Now declared in `[py-dependencies]`. Found by running the fetch in the regenerated shell, not by reading the diff.
+
+### Verified (T 0.55.2, `nix develop`)
+- `t run src/pipeline.t`: 6/6 nodes built; `report.html` has 0 matches for error/NULL/NaN/NA patterns (positive control finds `<html`; pattern falsified on a bad string).
+- `scripts/swarms_agent.py` (dry run) reads the `^ipc` artifacts: prices 16 rows, analysis 16 rows.
+- pytest: 58 passed. testthat (`NOT_CRAN=true`): 32 tests, 57 expectations, 0 failed/errors/skipped.
+
+### Known
+- `src/_extensions/tlang` is still the 0.51-era copy (`version: "0.51.0"`); 0.55.2 ships 0.52.0 (adds T syntax highlighting). Report renders fine with the old one; not synced here.
+- The 0.55.x generated flake omits the closure-rebuild shellHook (as before); this project has no `default.post.sh`.
+- Not revisited: moving the #23 `nft_alerts` workaround back into `_targets.R` (moot, the node was removed 2026-09-23).
+
 ## 2026-09-22
 
 ### Added
