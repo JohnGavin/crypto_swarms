@@ -71,6 +71,7 @@
         # Python environment
         py-env = pkgs.python313.withPackages (python-pkgs: with python-pkgs; [
           deepdiff
+          httpx
           pandas
           pyarrow
           plotly
