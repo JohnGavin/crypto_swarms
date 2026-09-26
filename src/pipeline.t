@@ -18,7 +18,7 @@ p = pipeline {
       prices <- arrow::read_parquet("data/latest_prices.parquet")
     }>,
     include = ["data/latest_prices.parquet"],
-    serializer = ^arrow
+    serializer = ^ipc
   )
 
   -- 1b. R: read accumulated price history from Parquet
@@ -28,7 +28,7 @@ p = pipeline {
       history <- arrow::read_parquet("data/price_history.parquet")
     }>,
     include = ["data/price_history.parquet"],
-    serializer = ^arrow
+    serializer = ^ipc
   )
 
   -- 1c. R: read accumulated NFT floor-price history from Parquet
@@ -41,7 +41,7 @@ p = pipeline {
       nft_history <- arrow::read_parquet("data/nft_floor_history.parquet")
     }>,
     include = ["data/nft_floor_history.parquet"],
-    serializer = ^arrow
+    serializer = ^ipc
   )
 
   -- 2. R: analyse prices via targets + crew DAG (Phase 2)
@@ -72,15 +72,15 @@ p = pipeline {
       analysis <- tar_read(alert_summary)
     }>,
     deserializer = [
-      prices:      ^arrow,
-      history:     ^arrow,
-      nft_history: ^arrow
+      prices:      ^ipc,
+      history:     ^ipc,
+      nft_history: ^ipc
     ],
     include = [
       "_targets.R",
       "R/analysis_functions.R"
     ],
-    serializer = ^arrow
+    serializer = ^ipc
   )
 
   -- 2b. NFT floor-price alerts: disabled 2026-09-23 (not of interest).
@@ -128,7 +128,7 @@ if len(triggered) > 0:
 else:
     alerts = "No alerts at " + datetime.now(timezone.utc).strftime("%H:%M UTC") + ". All stable."
     }>,
-    deserializer = ^arrow,
+    deserializer = ^ipc,
     serializer = ^json
   )
 

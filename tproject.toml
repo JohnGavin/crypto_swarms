@@ -15,4 +15,4 @@ packages = ["pandas", "pyarrow", "plotly", "pytest"]
 packages = ["quarto"]
 
 [t]
-min_version = "0.51.2"
+min_version = "0.55.2"
