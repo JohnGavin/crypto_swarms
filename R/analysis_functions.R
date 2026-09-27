@@ -262,11 +262,20 @@ regime_transitions <- function(regime_df, regime_col = "regime_mad") {
 }
 
 #' Get the latest regime + transition per token.
-#' @return data.frame: token, regime_mad, transition_direction (NA if no recent transition)
-regime_latest <- function(regime_with_transitions) {
-  regime_with_transitions |>
+#' @param regime_col Name of the regime column to carry through (default
+#'   "regime_mad", for back-compat with Phase R1 callers). Phase R2 callers
+#'   pass "regime_consensus".
+#' @return data.frame: token, <regime_col>, is_transition, transition_direction
+#'   (plus regime_confidence when present in the input, Phase R2)
+regime_latest <- function(regime_with_transitions, regime_col = "regime_mad") {
+  out <- regime_with_transitions |>
     group_by(token) |>
     slice_max(fetched_at, n = 1, with_ties = FALSE) |>
-    ungroup() |>
-    select(token, regime_mad, is_transition, transition_direction)
+    ungroup()
+
+  cols <- c("token", regime_col, "is_transition", "transition_direction")
+  if ("regime_confidence" %in% names(out)) {
+    cols <- c(cols, "regime_confidence")
+  }
+  out |> select(all_of(cols))
 }

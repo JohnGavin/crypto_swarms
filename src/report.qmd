@@ -23,15 +23,17 @@ if (nzchar(quarto_python)) {
 # T sed-replaces read_node("X") with '$T_NODE_X/artifact' (a path string).
 # Assign to a variable, then read the file from it. This also tells T about
 # the dependency so the report node depends on these upstream nodes.
-prices_path     <- read_node("prices")
-analysis_path   <- read_node("analysis")
-history_path    <- read_node("history")
-alerts_path     <- read_node("alerts")
+prices_path             <- read_node("prices")
+analysis_path           <- read_node("analysis")
+history_path            <- read_node("history")
+alerts_path             <- read_node("alerts")
+progression_ladder_path <- read_node("progression_ladder")
 
-prices     <- arrow::read_ipc_file(prices_path)
-analysis   <- arrow::read_ipc_file(analysis_path)
-history    <- arrow::read_ipc_file(history_path)
-alerts     <- jsonlite::fromJSON(alerts_path)
+prices             <- arrow::read_ipc_file(prices_path)
+analysis           <- arrow::read_ipc_file(analysis_path)
+history            <- arrow::read_ipc_file(history_path)
+alerts             <- jsonlite::fromJSON(alerts_path)
+progression_ladder <- arrow::read_ipc_file(progression_ladder_path)
 ```
 
 ## Alert Status
@@ -166,6 +168,23 @@ fig.update_layout(
 )
 
 fig
+```
+
+## Progression Ladder Tracker
+
+Tracks the 8 phases named in issue #18's gap G9 against signals this pipeline
+actually measures today. A phase reads **INDETERMINATE** when no measurable
+indicator exists yet in this pipeline -- deliberately distinct from
+"not reached", per the issue's own instruction not to conflate the two. See
+`R/progression_ladder.R` for how each row's status is set.
+
+```{r progression-ladder-table, echo=FALSE}
+progression_ladder |>
+  select(step, phase, indicator, status, source) |>
+  kable(
+    col.names = c("Step", "Phase", "Observable Indicator", "Status", "Data Source / Gap"),
+    caption = "Progression ladder status: all 8 phases currently INDETERMINATE -- none of issue #18's G1-G8 data sources are built yet"
+  )
 ```
 
 ---

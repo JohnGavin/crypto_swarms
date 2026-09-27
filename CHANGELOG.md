@@ -9,17 +9,32 @@
 - `.gitignore`: the 0.55.x shellHook writes `.t_julia_depot/`, `.t_python_guard/`, `.t_r_profile/` into the project root; untracked, they make `t update` refuse to run.
 
 ### Fixed
-- `httpx` was only ever hand-added to `flake.nix`, never declared in `tproject.toml`, so regenerating the flake dropped it and `scripts/fetch_prices.py` failed with `ModuleNotFoundError`. Now declared in `[py-dependencies]`. Found by running the fetch in the regenerated shell, not by reading the diff.
+- Independently of the 2026-09-23 `httpx` fix below (merged into `main` while this branch was in flight): this branch's own `t update` run also required `httpx` in `tproject.toml`, plus (new to 0.55.2, not 0.51.2) the `report` Quarto node's runtime deps -- `rmarkdown`; `ipykernel`, `nbclient`, `nbformat`, `pyyaml`; `which`. Named by T's own "Missing entries" error, not guessed.
 
-### Verified (T 0.55.2, `nix develop`)
-- `t run src/pipeline.t`: 6/6 nodes built; `report.html` has 0 matches for error/NULL/NaN/NA patterns (positive control finds `<html`; pattern falsified on a bad string).
-- `scripts/swarms_agent.py` (dry run) reads the `^ipc` artifacts: prices 16 rows, analysis 16 rows.
-- pytest: 58 passed. testthat (`NOT_CRAN=true`): 32 tests, 57 expectations, 0 failed/errors/skipped.
+### Verified (T 0.55.2, `nix develop`, after merging `main`)
+- `t run src/pipeline.t`: 6/6 nodes built (progression ladder + regime-consensus nodes from `main` included, NFT node absent); `report.html` has 0 matches for error/NULL/NaN/NA patterns (positive control finds `<html`; pattern falsified on a bad string).
+- `scripts/swarms_agent.py` (dry run) reads the `^ipc` artifacts.
+- pytest and testthat (`NOT_CRAN=true`) both green.
 
 ### Known
 - `src/_extensions/tlang` is still the 0.51-era copy (`version: "0.51.0"`); 0.55.2 ships 0.52.0 (adds T syntax highlighting). Report renders fine with the old one; not synced here.
 - The 0.55.x generated flake omits the closure-rebuild shellHook (as before); this project has no `default.post.sh`.
-- Not revisited: moving the #23 `nft_alerts` workaround back into `_targets.R` (moot, the node was removed 2026-09-23).
+
+## 2026-09-23
+
+### Added
+- **Regime detection Phase R2: change-point method + consensus voting** (issue #19 P3). `docs/REGIME_DETECTION_PLAN.md`'s phased rollout shipped only Phase R1 (rolling MAD) so far; #19 P3 asks to test whether macro covariates add signal to "regime consensus", but no consensus existed yet -- only a single method. `R/regime_changepoint.R` adds Method 3 (`changepoint::cpt.var()` PELT on log-returns, segments tertile-classified by their own MAD) and `regime_consensus()` (N-method majority vote + `regime_confidence`, written for N methods so a future 3rd vote -- e.g. HMM, Phase R3 -- is a one-line change at the call site). `_targets.R` now drives `regime_latest_tbl`/`regime_shock` off `regime_consensus` instead of the raw Phase R1 `regime_mad`. `regime_latest()` generalised with a `regime_col` param (default unchanged, back-compat with existing Phase R1 callers/tests).
+- 16 new tests (`tests/testthat/test-regime-changepoint.R`, 31.25% snapshot ratio) plus `tproject.toml`'s `changepoint` R dependency.
+- Verified end-to-end on live data: `t run src/pipeline.t` -> 6/6 nodes built, `alert_summary` target carries real `regime_consensus`/`regime_confidence` values (stablecoins correctly NA/excluded; genuine method-disagreement rows correctly show confidence 0.5, e.g. KMNO, JTO).
+- Macro covariates themselves are NOT wired in by this work -- that is the next step now that a consensus exists to test them against, and is separate, not-yet-started work.
+
+- **Progression ladder tracker** (issue #18 gap G9). Report section for the essay's 8-phase ladder (perp yield -> on-chain stocks -> private trading -> institutional lending -> direct issuance -> CBDC corporate finance -> private FX swaps -> looped international fixed income), each row carrying an indicator, status and data source. None of gaps G1-G8 are built yet, so every phase currently reads INDETERMINATE -- shipped anyway (explicit decision) to make the instrumentation gap auditable in the report rather than silently absent. `R/progression_ladder.R`, a new standalone `progression_ladder` T node (additive only, existing nodes untouched), a new report.qmd section, 7 tests (2 snapshots).
+
+### Fixed
+- `tproject.toml`'s `[py-dependencies]` never declared `httpx`, even though `flake.nix`'s Python environment has carried it since before this branch (used by `fetch_prices.py`, `swarms_agent.py`, `fetch_nft_floors.py`, `backfill_history.py`, `historical_contract.py`). `flake.nix` is the single source of truth's *output*, not its source -- `tproject.toml` is -- so running `t update` for the `changepoint` dependency above silently regenerated `flake.nix` without `httpx`, which would have broken every Python fetch script's next `nix develop` entry. Declared `httpx` in `tproject.toml` instead of hand-patching `flake.nix`.
+
+### Removed
+- **NFT floor-price tracking** (issue #26). NFTs are not of interest; NFT alerts were already disabled 2026-09-23 (the `nft_alerts` node + report section). This removes the rest: the `.github/workflows/scheduled-run.yml` fetch step, `scripts/run.sh`'s call, `scripts/fetch_nft_floors.py`, the `nft_history` T node and `analysis` node's `nft_history` deserializer, `_targets.R`'s six `nft_*` targets, `R/nft_functions.R` + its tests/snapshots, and the NFT path entries in `scripts/ci/check_addresses.py`/`check_secrets.py`. `data/nft_floor_history.parquet` is untracked (`git rm --cached`) -- kept in git history, no longer updated. Verified: `t run src/pipeline.t` -> 6/6 nodes built (down from 7, correctly), rendered report has zero errors/NULLs. Closes the loop with #9.
 
 ## 2026-09-22
 

@@ -61,7 +61,6 @@ SKIP_PATTERNS = [
     "_extensions/",
     ".git/",
     "data/price_history.parquet",
-    "data/nft_floor_history.parquet",
     "scripts/ci/check_addresses.py",  # this file, which mentions them
     "scripts/ci/check_secrets.py",     # this file, which mentions key patterns
     "scripts/ci/install-hooks.sh",     # example test address in help text

@@ -43,7 +43,6 @@ SKIP_PATTERNS = [
     "_extensions/",
     ".git/",
     "data/price_history.parquet",
-    "data/nft_floor_history.parquet",
     "scripts/ci/check_secrets.py",  # this file mentions the patterns as examples
     ".env.example",                  # template with empty values
     "CHANGELOG.md",                  # may mention past incidents
