@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:rstats-on-nix/nixpkgs/2026-04-04";
     flake-utils.url = "github:numtide/flake-utils";
-    t-lang.url = "github:b-rodrigues/tlang/v0.55.2";
+    t-lang.url = "github:b-rodrigues/tlang/v0.55.3";
   };
 
   nixConfig = {
