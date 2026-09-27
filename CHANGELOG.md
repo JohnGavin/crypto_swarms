@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-27
+
+### Changed
+- **T 0.55.2 -> 0.55.3.** `tproject.toml` `min_version` bumped; `flake.nix`/`flake.lock` regenerated (t-lang commit only; nothing else changed in the generated flake). Upstream 0.55.3 adds an `renv`+toml dependency resolver, unrelated to this project's `^ipc`/pipeline surface.
+- **`src/_extensions/tlang` synced to 0.52.0** (was still the 0.51.0-era copy from before the #25 upgrade). Byte-identical to the copy `nix develop`'s shellHook provisions at v0.55.3. `report.qmd` has no ` ```{t} ` chunks, so 0.52.0's new T syntax highlighting isn't exercised by the current report.
+
+### Verified (T 0.55.3, `nix develop`)
+- `t run src/pipeline.t`: 6/6 nodes built; `report.html` 0 error/NULL/NaN/NA matches (control finds `<html`).
+- pytest: 58 passed. testthat (`NOT_CRAN=true`): 43 tests, 65 expectations, 0 failed/errors/skipped.
+
 ## 2026-09-26
 
 ### Changed
