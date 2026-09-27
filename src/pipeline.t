@@ -79,7 +79,7 @@ p = pipeline {
       progression_ladder <- progression_ladder_status()
     }>,
     include = ["R/progression_ladder.R"],
-    serializer = ^arrow
+    serializer = ^ipc
   )
 
   -- 3. Python: format alerts (plain text for Phase 1, Swarms agent in Phase 2)
