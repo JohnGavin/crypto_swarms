@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-09-26
+
+### Changed
+- **Upgraded T 0.51.2 -> 0.55.2** (issue #25). `flake.nix`/`flake.lock` regenerated with `t update` (v0.55.2 binary, clean tree) and locked to the v0.55.2 tag commit; `tproject.toml` `min_version` = 0.55.2.
+- `^arrow` serializer/deserializer renamed `^ipc` throughout `src/pipeline.t` (0.55.0 renamed it with no alias; a leftover `^arrow` only fails at build time). `swarms_agent.py` still reads the artifacts with `pyarrow.ipc` unchanged.
+- `tproject.toml` now declares what 0.55.2 refuses to build without, for the `report` Quarto node: `rmarkdown`; `ipykernel`, `nbclient`, `nbformat`, `pyyaml`; `which`. `jsonlite` was already declared.
+- `.gitignore`: the 0.55.x shellHook writes `.t_julia_depot/`, `.t_python_guard/`, `.t_r_profile/` into the project root; untracked, they make `t update` refuse to run.
+
+### Fixed
+- Independently of the 2026-09-23 `httpx` fix below (merged into `main` while this branch was in flight): this branch's own `t update` run also required `httpx` in `tproject.toml`, plus (new to 0.55.2, not 0.51.2) the `report` Quarto node's runtime deps -- `rmarkdown`; `ipykernel`, `nbclient`, `nbformat`, `pyyaml`; `which`. Named by T's own "Missing entries" error, not guessed.
+
+### Verified (T 0.55.2, `nix develop`, after merging `main`)
+- `t run src/pipeline.t`: 6/6 nodes built (progression ladder + regime-consensus nodes from `main` included, NFT node absent); `report.html` has 0 matches for error/NULL/NaN/NA patterns (positive control finds `<html`; pattern falsified on a bad string).
+- `scripts/swarms_agent.py` (dry run) reads the `^ipc` artifacts.
+- pytest and testthat (`NOT_CRAN=true`) both green.
+
+### Known
+- `src/_extensions/tlang` is still the 0.51-era copy (`version: "0.51.0"`); 0.55.2 ships 0.52.0 (adds T syntax highlighting). Report renders fine with the old one; not synced here.
+- The 0.55.x generated flake omits the closure-rebuild shellHook (as before); this project has no `default.post.sh`.
+
 ## 2026-09-23
 
 ### Added

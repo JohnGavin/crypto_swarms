@@ -3,6 +3,10 @@ pipeline-output/
 # Root _extensions/ is provisioned by shellHook (gitignored)
 # src/_extensions/ is committed (needed for Quarto in Nix sandbox)
 /_extensions/
+# Per-shell guard dirs written by the T 0.55.x flake shellHook
+/.t_julia_depot/
+/.t_python_guard/
+/.t_r_profile/
 .DS_Store
 *.html
 data/latest_prices.csv
