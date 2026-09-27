@@ -36,6 +36,7 @@
           duckplyr
           testthat
           usethis
+          changepoint
           rmarkdown
         ];
 
