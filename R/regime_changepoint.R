@@ -26,13 +26,68 @@ suppressPackageStartupMessages({
 # whole series needs enough for at least a few candidate segments).
 REGIME_CPT_MIN_OBS <- 30
 
+#' Label each observation's PELT segment by tertile of that segment's OWN
+#' MAD, computed once per segment (not re-weighted by segment length).
+#'
+#' Fixes two bugs found in review (#32):
+#'
+#' 1. With a single segment (PELT found no change point), the old code
+#'    computed `mad()` of the whole series, so q33 == q67 == that one value
+#'    and `case_when()`'s first branch (`seg_mad <= q33`) always matched --
+#'    every observation was labelled "low" regardless of true volatility.
+#'    A single segment cannot be tertile-classified against itself; this
+#'    now returns NA for the whole series instead of guessing. Two segments
+#'    with distinct MAD values do NOT collapse this way (quantile() over two
+#'    distinct values always splits strictly between them), so the common
+#'    single-break case is unaffected and still classifies to low/high.
+#' 2. The old code used `vapply()` over one entry per OBSERVATION, so a long
+#'    segment's MAD was recomputed once per observation (O(n^2)) and the
+#'    tertile quantiles were implicitly weighted by segment length rather
+#'    than treating each segment as one vote. This computes MAD once per
+#'    unique segment and quantiles over those per-segment values only.
+#'
+#' @param returns Numeric vector of returns, one per observation.
+#' @param seg_id Integer vector, same length as `returns`: which PELT
+#'   segment each observation belongs to.
+#' @return Character vector, same length as `returns`: low/medium/high per
+#'   observation. All NA when there is only one segment.
+segment_mad_labels <- function(returns, seg_id) {
+  # c() strips tapply()'s 1D-array class (keeping names) -- case_when()
+  # rejects an array as "not a logical vector" once compared.
+  per_segment_mad <- c(tapply(returns, seg_id, mad, na.rm = TRUE))
+
+  if (length(per_segment_mad) < 2) {
+    return(rep(NA_character_, length(returns)))
+  }
+
+  q33 <- quantile(per_segment_mad, 0.33, na.rm = TRUE)
+  q67 <- quantile(per_segment_mad, 0.67, na.rm = TRUE)
+  seg_label <- case_when(
+    per_segment_mad <= q33 ~ "low",
+    per_segment_mad >= q67 ~ "high",
+    TRUE                   ~ "medium"
+  )
+  names(seg_label) <- names(per_segment_mad)
+  unname(seg_label[as.character(seg_id)])
+}
+
 #' Change-point detection on return variance (Phase R2 Method 3).
 #'
 #' Fits `changepoint::cpt.var()` (PELT) per token on log returns, then maps
-#' each detected segment to low/medium/high by tertile-classifying that
-#' segment's own MAD against the token's own segment-MAD distribution -- the
-#' same robust tertile approach `regime_rollmad()` uses, so the two methods'
-#' labels are on a comparable scale even though they're derived differently.
+#' each detected segment to low/medium/high via `segment_mad_labels()` --
+#' the same robust tertile approach `regime_rollmad()` uses, so the two
+#' methods' labels are on a comparable scale even though derived differently.
+#'
+#' Known limitation (#32 finding 4, documented rather than fixed here): the
+#' PELT fit runs over each token's FULL history every call, so the regime
+#' label assigned to a past observation can change between runs as new data
+#' arrives -- there is no guarantee a label computed today matches what an
+#' expanding-window fit would have said at that point in time. This means
+#' `regime_transitions()`'s `prev_regime` (and any transition derived from
+#' it) can appear or disappear between runs with no new price move at the
+#' latest point. Fixing this properly needs an expanding-window refit (or
+#' persisting each run's latest label rather than recomputing it), which is
+#' a larger, separately-scoped change -- see issue #32.
 #'
 #' @param hist data.frame: token, price_usd, fetched_at (POSIXct), sorted
 #' @param min_obs Minimum return observations before change-point detection
@@ -90,18 +145,7 @@ regime_changepoint <- function(hist, min_obs = REGIME_CPT_MIN_OBS, penalty = "BI
         start <- changes[i] + 1L
       }
 
-      seg_mad <- vapply(
-        seg_id,
-        function(s) mad(returns[seg_id == s], na.rm = TRUE),
-        numeric(1)
-      )
-      q33 <- quantile(seg_mad, 0.33, na.rm = TRUE)
-      q67 <- quantile(seg_mad, 0.67, na.rm = TRUE)
-      regime_cpt <- case_when(
-        seg_mad <= q33 ~ "low",
-        seg_mad >= q67 ~ "high",
-        TRUE            ~ "medium"
-      )
+      regime_cpt <- segment_mad_labels(returns, seg_id)
 
       # returns[i] is the jump INTO observation i+1 (diff() drops the first
       # price); regime_rollmad() aligns the same way via c(NA, diff(...)).
@@ -150,4 +194,31 @@ regime_consensus <- function(regime_methods_df, method_cols) {
     ) |>
     ungroup() |>
     select(-.votes)
+}
+
+#' Gate an "up" regime transition into a shock/alert signal by consensus
+#' confidence.
+#'
+#' Fixes #32 finding 1: `_targets.R`'s `alert_summary` target used to set
+#' `regime_shock` from `is_transition`/`transition_direction` alone, with no
+#' gate on `regime_confidence`. With only 2 methods, every disagreement ties
+#' at confidence 0.5 (see `regime_consensus()`'s own tie-break, which is
+#' unchanged by this fix), so a single method's vote could flip the
+#' "consensus" to "up" and raise a real alert -- looser than the Phase R1
+#' behaviour it replaced. The plan doc's own threshold (confidence < 0.67 is
+#' uncertain) already existed as a comment; it was just never applied here.
+#'
+#' @param is_transition Logical vector (as produced by `regime_transitions()`)
+#' @param transition_direction Character vector: "up"/"down"/"lateral"/NA
+#' @param regime_confidence Numeric vector, 0-1 (as produced by
+#'   `regime_consensus()`). NA is treated as 0 (never a shock).
+#' @param confidence_threshold Minimum confidence to treat an "up" transition
+#'   as a shock (default 0.67, per docs/REGIME_DETECTION_PLAN.md)
+#' @return Logical vector, same length as the inputs
+regime_shock_flag <- function(is_transition, transition_direction, regime_confidence,
+                               confidence_threshold = 0.67) {
+  regime_confidence[is.na(regime_confidence)] <- 0
+  !is.na(is_transition) & is_transition &
+    !is.na(transition_direction) & transition_direction == "up" &
+    regime_confidence >= confidence_threshold
 }

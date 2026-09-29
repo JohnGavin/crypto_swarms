@@ -183,7 +183,11 @@ progression_ladder |>
   select(step, phase, indicator, status, source) |>
   kable(
     col.names = c("Step", "Phase", "Observable Indicator", "Status", "Data Source / Gap"),
-    caption = "Progression ladder status: all 8 phases currently INDETERMINATE -- none of issue #18's G1-G8 data sources are built yet"
+    caption = sprintf(
+      "Progression ladder status: %d of %d phases INDETERMINATE",
+      sum(progression_ladder$status == "INDETERMINATE"),
+      nrow(progression_ladder)
+    )
   )
 ```
 
