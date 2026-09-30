@@ -107,8 +107,11 @@ list(
       dplyr::left_join(regime_latest_tbl, by = "token") |>
       dplyr::mutate(
         # regime_shock_flag() (R/regime_changepoint.R) gates on
-        # regime_confidence -- see #32 finding 1.
-        regime_shock = regime_shock_flag(is_transition, transition_direction, regime_confidence),
+        # regime_confidence AND regime_n_votes -- see #32 findings 1 and
+        # its follow-up (confidence alone is trivially 1.0 with one voter).
+        regime_shock = regime_shock_flag(
+          is_transition, transition_direction, regime_confidence, regime_n_votes
+        ),
         trigger_alert = trigger_alert | regime_shock
       )
   ),

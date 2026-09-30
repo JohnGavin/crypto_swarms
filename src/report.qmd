@@ -185,7 +185,7 @@ progression_ladder |>
     col.names = c("Step", "Phase", "Observable Indicator", "Status", "Data Source / Gap"),
     caption = sprintf(
       "Progression ladder status: %d of %d phases INDETERMINATE",
-      sum(progression_ladder$status == "INDETERMINATE"),
+      sum(progression_ladder$status == "INDETERMINATE", na.rm = TRUE),
       nrow(progression_ladder)
     )
   )

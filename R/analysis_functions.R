@@ -266,7 +266,9 @@ regime_transitions <- function(regime_df, regime_col = "regime_mad") {
 #'   "regime_mad", for back-compat with Phase R1 callers). Phase R2 callers
 #'   pass "regime_consensus".
 #' @return data.frame: token, <regime_col>, is_transition, transition_direction
-#'   (plus regime_confidence when present in the input, Phase R2)
+#'   (plus regime_confidence/regime_n_votes when present in the input,
+#'   Phase R2 -- see #32 finding 1 on why regime_n_votes must travel
+#'   alongside regime_confidence, not be dropped along the way)
 regime_latest <- function(regime_with_transitions, regime_col = "regime_mad") {
   out <- regime_with_transitions |>
     group_by(token) |>
@@ -276,6 +278,9 @@ regime_latest <- function(regime_with_transitions, regime_col = "regime_mad") {
   cols <- c("token", regime_col, "is_transition", "transition_direction")
   if ("regime_confidence" %in% names(out)) {
     cols <- c(cols, "regime_confidence")
+  }
+  if ("regime_n_votes" %in% names(out)) {
+    cols <- c(cols, "regime_n_votes")
   }
   out |> select(all_of(cols))
 }

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-30
+
+### Fixed
+- **Regime-consensus single-method alerts** (issue #32, PRs #34/#35). A roborev range review of the merged T 0.55.x work surfaced real bugs in `R/regime_changepoint.R`'s Phase R2 consensus, none related to the T upgrade itself:
+  - `regime_consensus()`'s `regime_confidence` could not distinguish "both methods agree" from "only one method voted" -- both read 1.0. `_targets.R` set `regime_shock`/`trigger_alert` from `is_transition`/`transition_direction` alone with no confidence gate at all, so a single method's "up" call could raise a real alert -- looser than the Phase R1 behaviour it replaced.
+  - `segment_mad_labels()` (new, replaces the old inline `vapply`/quantile block in `regime_changepoint()`): a single PELT segment, or multiple segments that all share the same MAD (e.g. several single-observation segments), used to collapse the tertile split to a constant and label every observation "low" regardless of true volatility.
+  - `regime_shock_flag()` (new) now gates on BOTH `regime_confidence >= 0.67` AND a new `regime_n_votes >= 2` (the fix that closed the "one voter reads confidence 1.0" gap #34 initially missed). `regime_consensus()` returns `regime_n_votes`; `regime_latest()` carries it through.
+  - `src/report.qmd`'s progression-ladder caption is now computed from `progression_ladder$status` (NA-safe) instead of a hardcoded string.
+  - TDD throughout: RED-confirmed new tests before each fix, GREEN after. 56 R tests / 89 expectations, 58 Python tests, `t run src/pipeline.t` 6/6 nodes / 0 report errors, verified after each round.
+  - Deferred as tracked follow-ups, not fixed here: [#33](https://github.com/JohnGavin/crypto_swarms/issues/33) (whether to lean on `historical`'s more mature regime/structural-break machinery instead of this bespoke module) and [#36](https://github.com/JohnGavin/crypto_swarms/issues/36) (deriving `min_votes` from `method_cols`, flagging suppressed/indeterminate shocks, an integration test for `regime_n_votes` surviving `regime_latest()`).
+
 ## 2026-09-27
 
 ### Changed
