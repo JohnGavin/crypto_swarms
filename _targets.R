@@ -106,8 +106,9 @@ list(
     compute_alerts(prices_validated, summary_7d, summary_30d, bollinger_7d) |>
       dplyr::left_join(regime_latest_tbl, by = "token") |>
       dplyr::mutate(
-        regime_shock = !is.na(is_transition) & is_transition &
-                       transition_direction == "up",
+        # regime_shock_flag() (R/regime_changepoint.R) gates on
+        # regime_confidence -- see #32 finding 1.
+        regime_shock = regime_shock_flag(is_transition, transition_direction, regime_confidence),
         trigger_alert = trigger_alert | regime_shock
       )
   ),

@@ -83,6 +83,55 @@ test_that("regime_changepoint label distribution snapshot on a known break", {
   expect_snapshot(table(result$regime_cpt, useNA = "ifany"))
 })
 
+test_that("segment_mad_labels: fewer than 2 segments returns all NA, not a degenerate 'low'", {
+  # Reproduces #32 finding 2: with 1 segment, the old code's quantile split
+  # collapsed to a single constant value, so every observation -- however
+  # volatile -- was labelled "low". A single segment cannot be
+  # tertile-classified against itself; it must return NA, not a guess.
+  returns <- rnorm(50, 0, 0.05)  # deliberately high-vol
+  seg_id <- rep(1L, 50)
+  result <- segment_mad_labels(returns, seg_id)
+  expect_true(all(is.na(result)))
+  expect_length(result, 50)
+})
+
+test_that("segment_mad_labels: exactly 2 segments with distinct MAD classify low/high, not NA", {
+  # 2 segments IS enough to classify (unlike the 1-segment case above): with
+  # two distinct seg_mad values, tertile quantiles never collapse to a
+  # constant, so the lower-MAD segment reads "low" and the higher "high".
+  # This must keep working -- it's exactly the shape of the project's own
+  # canonical break fixture (make_regime_break_history()).
+  set.seed(100)
+  seg_id <- c(rep(1L, 30), rep(2L, 30))
+  returns <- c(rnorm(30, 0, 0.005), rnorm(30, 0, 0.05))
+  result <- segment_mad_labels(returns, seg_id)
+  expect_false(any(is.na(result)))
+  expect_true(all(result[seg_id == 1] == "low"))
+  expect_true(all(result[seg_id == 2] == "high"))
+})
+
+test_that("segment_mad_labels: label reflects per-segment MAD, not per-observation weighting", {
+  # Reproduces #32 finding 3: one huge low-vol segment (100 obs) alongside
+  # two tiny segments (5 obs each) with genuinely higher internal spread.
+  # A single-observation segment has MAD 0 regardless of its value's
+  # magnitude (no internal spread to measure), so each segment here needs
+  # >1 observation for its MAD to mean anything. Each segment must count
+  # ONCE in the tertile split, not be weighted by how many observations it
+  # has -- otherwise the 100-observation segment would dominate the
+  # quantiles and swallow the other two.
+  set.seed(101)
+  seg_id <- c(rep(1L, 100), rep(2L, 5), rep(3L, 5))
+  returns <- c(rnorm(100, 0, 0.005), rnorm(5, 0, 0.02), rnorm(5, 0, 0.08))
+  result <- segment_mad_labels(returns, seg_id)
+  # Three segments, three distinct per-segment MAD values -> one label each.
+  labels_by_segment <- tapply(result, seg_id, unique)
+  expect_length(unique(unlist(labels_by_segment)), 3)
+  expect_setequal(unlist(labels_by_segment), c("low", "medium", "high"))
+  # Segment 1 (tightest spread) must be "low" regardless of its 100x length.
+  expect_equal(labels_by_segment[["1"]], "low")
+  expect_equal(labels_by_segment[["3"]], "high")
+})
+
 test_that("regime_changepoint handles a degenerate (constant-price) series without erroring", {
   # cpt.var() can legitimately fail on a zero-variance series -- the
   # tryCatch path must return NA, not propagate the error.
@@ -195,4 +244,62 @@ test_that("regime_consensus full output snapshot", {
   expect_snapshot(
     result |> dplyr::select(token, regime_consensus, regime_confidence)
   )
+})
+
+# ---- Tests: regime_shock_flag (#32 finding 1) ----
+
+test_that("regime_shock_flag: up transition with full confidence is a shock", {
+  result <- regime_shock_flag(
+    is_transition = TRUE, transition_direction = "up", regime_confidence = 1.0
+  )
+  expect_true(result)
+})
+
+test_that("regime_shock_flag: up transition on a 0.5-confidence tie is NOT a shock", {
+  # Reproduces #32 finding 1 directly: with only 2 methods, every
+  # disagreement ties at confidence 0.5. _targets.R used to set regime_shock
+  # from is_transition/transition_direction alone, so a single method's
+  # vote could flip the "consensus" to "up" and raise a real alert. The
+  # plan doc's own threshold (0.67) says this is exactly the uncertain case.
+  result <- regime_shock_flag(
+    is_transition = TRUE, transition_direction = "up", regime_confidence = 0.5
+  )
+  expect_false(result)
+})
+
+test_that("regime_shock_flag: confidence exactly at the 0.67 threshold is a shock (inclusive)", {
+  result <- regime_shock_flag(
+    is_transition = TRUE, transition_direction = "up", regime_confidence = 0.67
+  )
+  expect_true(result)
+})
+
+test_that("regime_shock_flag: down transition is never a shock regardless of confidence", {
+  result <- regime_shock_flag(
+    is_transition = TRUE, transition_direction = "down", regime_confidence = 1.0
+  )
+  expect_false(result)
+})
+
+test_that("regime_shock_flag: no transition is never a shock", {
+  result <- regime_shock_flag(
+    is_transition = FALSE, transition_direction = NA_character_, regime_confidence = 1.0
+  )
+  expect_false(result)
+})
+
+test_that("regime_shock_flag: NA confidence is treated as 0 (never a shock)", {
+  result <- regime_shock_flag(
+    is_transition = TRUE, transition_direction = "up", regime_confidence = NA_real_
+  )
+  expect_false(result)
+})
+
+test_that("regime_shock_flag: vectorised across multiple tokens", {
+  result <- regime_shock_flag(
+    is_transition = c(TRUE, TRUE, TRUE, FALSE),
+    transition_direction = c("up", "up", "down", NA_character_),
+    regime_confidence = c(1.0, 0.5, 1.0, NA_real_)
+  )
+  expect_equal(result, c(TRUE, FALSE, FALSE, FALSE))
 })
