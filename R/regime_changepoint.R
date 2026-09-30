@@ -50,13 +50,17 @@ REGIME_CPT_MIN_OBS <- 30
 #' @param seg_id Integer vector, same length as `returns`: which PELT
 #'   segment each observation belongs to.
 #' @return Character vector, same length as `returns`: low/medium/high per
-#'   observation. All NA when there is only one segment.
+#'   observation. All NA when there are fewer than 2 DISTINCT per-segment
+#'   MAD values (a single segment always qualifies; so does any number of
+#'   segments that all happen to share the same MAD -- e.g. several
+#'   constant-price or single-observation segments -- see #32 finding 2 on
+#'   the followup review of this function's own first fix).
 segment_mad_labels <- function(returns, seg_id) {
   # c() strips tapply()'s 1D-array class (keeping names) -- case_when()
   # rejects an array as "not a logical vector" once compared.
   per_segment_mad <- c(tapply(returns, seg_id, mad, na.rm = TRUE))
 
-  if (length(per_segment_mad) < 2) {
+  if (length(unique(per_segment_mad)) < 2) {
     return(rep(NA_character_, length(returns)))
   }
 
@@ -164,12 +168,18 @@ regime_changepoint <- function(hist, min_obs = REGIME_CPT_MIN_OBS, penalty = "BI
 #' @param regime_methods_df data.frame with `token`, `fetched_at`, and one
 #'   column per method named in `method_cols` (each low/medium/high/NA)
 #' @param method_cols Character vector of column names to vote across
-#' @return regime_methods_df with two added columns:
+#' @return regime_methods_df with three added columns:
 #'   regime_consensus  -- modal regime across the non-NA votes (NA if none)
 #'   regime_confidence -- fraction of non-NA votes agreeing with the mode
 #'     (0 when there are no votes; per the plan doc, confidence < 0.67 means
 #'     the regime is uncertain -- with only 2 methods that is every
 #'     disagreement, which is the correct reading until a 3rd method ships)
+#'   regime_n_votes    -- count of non-NA votes (0 to length(method_cols)).
+#'     Needed because confidence alone cannot distinguish "all methods
+#'     agree" from "only one method voted" -- both read 1.0. See #32
+#'     finding 1 on `regime_shock_flag()`'s follow-up review: a NA vote
+#'     from one method previously made the remaining method's confidence
+#'     trivially 1.0, defeating the multi-method gate entirely.
 #'
 #' Tie-break on disagreement: `sort(table(votes), decreasing = TRUE)[1]`
 #' (the plan doc's own formula) resolves ties by table()'s default factor
@@ -190,7 +200,8 @@ regime_consensus <- function(regime_methods_df, method_cols) {
         0
       } else {
         max(table(unlist(.votes))) / length(.votes)
-      }
+      },
+      regime_n_votes = length(.votes)
     ) |>
     ungroup() |>
     select(-.votes)
@@ -208,17 +219,35 @@ regime_consensus <- function(regime_methods_df, method_cols) {
 #' behaviour it replaced. The plan doc's own threshold (confidence < 0.67 is
 #' uncertain) already existed as a comment; it was just never applied here.
 #'
+#' The confidence-only gate above was itself found insufficient in the
+#' follow-up review of this fix: when only ONE method votes (the other's
+#' value is NA -- now more common since `segment_mad_labels()` correctly
+#' returns NA for a degenerate segment split), `regime_confidence` is
+#' trivially 1.0 (the single vote agrees with itself), so a lone method's
+#' "up" call sails past the 0.67 gate unchallenged -- exactly the single-
+#' method-alert failure mode this function exists to prevent. `min_votes`
+#' additionally requires at least `min_votes` methods to have actually
+#' voted (non-NA) before a shock can fire at all.
+#'
 #' @param is_transition Logical vector (as produced by `regime_transitions()`)
 #' @param transition_direction Character vector: "up"/"down"/"lateral"/NA
 #' @param regime_confidence Numeric vector, 0-1 (as produced by
 #'   `regime_consensus()`). NA is treated as 0 (never a shock).
+#' @param regime_n_votes Integer vector: count of non-NA votes (as produced
+#'   by `regime_consensus()`). NA is treated as 0 (never a shock).
 #' @param confidence_threshold Minimum confidence to treat an "up" transition
 #'   as a shock (default 0.67, per docs/REGIME_DETECTION_PLAN.md)
+#' @param min_votes Minimum number of methods that must have actually voted
+#'   (default 2 -- the number of methods currently configured in
+#'   `_targets.R`'s `regime_consensus_tbl`; update this default alongside
+#'   `method_cols` when a 3rd method ships)
 #' @return Logical vector, same length as the inputs
 regime_shock_flag <- function(is_transition, transition_direction, regime_confidence,
-                               confidence_threshold = 0.67) {
+                               regime_n_votes, confidence_threshold = 0.67, min_votes = 2) {
   regime_confidence[is.na(regime_confidence)] <- 0
+  regime_n_votes[is.na(regime_n_votes)] <- 0
   !is.na(is_transition) & is_transition &
     !is.na(transition_direction) & transition_direction == "up" &
-    regime_confidence >= confidence_threshold
+    regime_confidence >= confidence_threshold &
+    regime_n_votes >= min_votes
 }
