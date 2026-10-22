@@ -237,17 +237,39 @@ regime_consensus <- function(regime_methods_df, method_cols) {
 #'   by `regime_consensus()`). NA is treated as 0 (never a shock).
 #' @param confidence_threshold Minimum confidence to treat an "up" transition
 #'   as a shock (default 0.67, per docs/REGIME_DETECTION_PLAN.md)
-#' @param min_votes Minimum number of methods that must have actually voted
-#'   (default 2 -- the number of methods currently configured in
-#'   `_targets.R`'s `regime_consensus_tbl`; update this default alongside
-#'   `method_cols` when a 3rd method ships)
+#' @param min_votes Minimum number of methods that must have actually voted.
+#'   Deliberately has NO default (#36 finding 1): callers derive it from the
+#'   same constant as `regime_consensus()`'s `method_cols` (in `_targets.R`,
+#'   `length(REGIME_METHOD_COLS)`), so adding a method cannot silently leave
+#'   the vote rule behind.
 #' @return Logical vector, same length as the inputs
 regime_shock_flag <- function(is_transition, transition_direction, regime_confidence,
-                               regime_n_votes, confidence_threshold = 0.67, min_votes = 2) {
+                               regime_n_votes, confidence_threshold = 0.67, min_votes) {
   regime_confidence[is.na(regime_confidence)] <- 0
   regime_n_votes[is.na(regime_n_votes)] <- 0
   !is.na(is_transition) & is_transition &
     !is.na(transition_direction) & transition_direction == "up" &
     regime_confidence >= confidence_threshold &
     regime_n_votes >= min_votes
+}
+
+#' Flag "up" regime transitions whose shock could not be assessed.
+#'
+#' #36 finding 2: `regime_shock_flag()` returns FALSE both for "no shock" and
+#' for "a method did not vote, so we cannot tell" (for example `regime_cpt` is
+#' NA below `REGIME_CPT_MIN_OBS`). This helper makes the second case visible:
+#' TRUE when the row is an "up" transition but fewer than `min_votes` methods
+#' voted. It is mutually exclusive with `regime_shock_flag()` (which needs
+#' `regime_n_votes >= min_votes`). NA inputs never yield TRUE, except that an
+#' NA `regime_n_votes` is treated as 0 votes (matching `regime_shock_flag()`)
+#' on a row that is otherwise a definite "up" transition.
+#'
+#' @inheritParams regime_shock_flag
+#' @return Logical vector, same length as the inputs
+regime_shock_indeterminate_flag <- function(is_transition, transition_direction,
+                                             regime_n_votes, min_votes) {
+  regime_n_votes[is.na(regime_n_votes)] <- 0
+  !is.na(is_transition) & is_transition &
+    !is.na(transition_direction) & transition_direction == "up" &
+    regime_n_votes < min_votes
 }

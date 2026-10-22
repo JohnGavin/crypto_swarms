@@ -47,6 +47,12 @@ tar_source("R/analysis_functions.R")
 tar_source("R/regime_changepoint.R")
 tar_source("R/progression_ladder.R")
 
+# One home for the configured regime methods (#36 finding 1): used for BOTH
+# regime_consensus(method_cols = ) and regime_shock_flag(min_votes = ), so a
+# 3rd method added here raises the vote requirement with it. Current policy:
+# every configured method must vote before a shock can fire.
+REGIME_METHOD_COLS <- c("regime_mad", "regime_cpt")
+
 list(
   # --- Inputs (parquet files written by the rn node) ---
   tar_target(prices_file,  "tmp_prices.parquet",  format = "file"),
@@ -89,7 +95,7 @@ list(
   ),
   tar_target(
     regime_consensus_tbl,
-    regime_consensus(regime_methods_tbl, method_cols = c("regime_mad", "regime_cpt"))
+    regime_consensus(regime_methods_tbl, method_cols = REGIME_METHOD_COLS)
   ),
   tar_target(
     regime_transitions_tbl,
@@ -110,10 +116,26 @@ list(
         # regime_confidence AND regime_n_votes -- see #32 findings 1 and
         # its follow-up (confidence alone is trivially 1.0 with one voter).
         regime_shock = regime_shock_flag(
-          is_transition, transition_direction, regime_confidence, regime_n_votes
+          is_transition, transition_direction, regime_confidence, regime_n_votes,
+          min_votes = length(REGIME_METHOD_COLS)
+        ),
+        # "up" transitions suppressed for lack of votes: distinguishes
+        # "no shock" from "could not be assessed" (#36 finding 2).
+        regime_shock_indeterminate = regime_shock_indeterminate_flag(
+          is_transition, transition_direction, regime_n_votes,
+          min_votes = length(REGIME_METHOD_COLS)
         ),
         trigger_alert = trigger_alert | regime_shock
-      )
+      ) |>
+      (\(df) {
+        n_indet <- sum(df$regime_shock_indeterminate)
+        if (n_indet > 0) {
+          cli::cli_inform(
+            "{n_indet} token{?s} with an \"up\" regime transition could not be assessed (fewer than {length(REGIME_METHOD_COLS)} method votes): {.val {df$token[df$regime_shock_indeterminate]}}"
+          )
+        }
+        df
+      })()
   ),
 
   # --- Progression ladder tracker (issue #18, gap G9) ---

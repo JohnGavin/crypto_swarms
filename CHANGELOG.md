@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-22
+
+### Changed
+- **Regime vote gate hardening** ([#36](https://github.com/JohnGavin/crypto_swarms/issues/36), shipped with PR #35):
+  - `_targets.R` hoists `REGIME_METHOD_COLS`, used for both `regime_consensus(method_cols = )` and `regime_shock_flag(min_votes = length(REGIME_METHOD_COLS))`. `regime_shock_flag()` no longer has a `min_votes = 2` default (callers must pass it); behaviour with the current 2 methods is unchanged.
+  - New `regime_shock_indeterminate_flag()` and an `alert_summary` column `regime_shock_indeterminate` (TRUE for an "up" transition with fewer than `min_votes` votes, NA-safe), plus a `cli::cli_inform()` count of such tokens.
+  - New integration test: `regime_consensus()` -> `regime_transitions()` -> `regime_latest(regime_col = "regime_consensus")` keeps `regime_n_votes`.
+
 ## 2026-09-30
 
 ### Fixed
