@@ -95,6 +95,21 @@ test_that("segment_mad_labels: fewer than 2 segments returns all NA, not a degen
   expect_length(result, 50)
 })
 
+test_that("segment_mad_labels: multiple segments that all share the same MAD return all NA", {
+  # Reproduces #32 finding 2's follow-up review: the original fix only
+  # checked length(per_segment_mad) < 2 (segment COUNT), not whether the
+  # segments' MAD values are actually distinct. Several single-observation
+  # segments (each MAD 0, since a lone point has no internal spread to
+  # measure) reproduce the exact same degeneracy the 1-segment fix was
+  # meant to close: q33 == q67 == 0, so case_when()'s first branch matches
+  # every row -- "low" regardless of anything.
+  seg_id <- c(1L, 2L, 3L)  # 3 segments, each a single observation
+  returns <- c(0.5, -3, 10)  # wildly different VALUES, but MAD is 0 for all
+  result <- segment_mad_labels(returns, seg_id)
+  expect_true(all(is.na(result)))
+  expect_length(result, 3)
+})
+
 test_that("segment_mad_labels: exactly 2 segments with distinct MAD classify low/high, not NA", {
   # 2 segments IS enough to classify (unlike the 1-segment case above): with
   # two distinct seg_mad values, tertile quantiles never collapse to a
@@ -158,6 +173,7 @@ test_that("regime_consensus: both methods agree gives confidence 1.0", {
   result <- regime_consensus(df, method_cols = c("regime_mad", "regime_cpt"))
   expect_equal(result$regime_consensus, "high")
   expect_equal(result$regime_confidence, 1.0)
+  expect_equal(result$regime_n_votes, 2)
 })
 
 test_that("regime_consensus: methods disagree gives confidence 0.5", {
@@ -168,6 +184,7 @@ test_that("regime_consensus: methods disagree gives confidence 0.5", {
   result <- regime_consensus(df, method_cols = c("regime_mad", "regime_cpt"))
   expect_equal(result$regime_confidence, 0.5)
   expect_true(result$regime_consensus %in% c("low", "high"))
+  expect_equal(result$regime_n_votes, 2)
 })
 
 test_that("regime_consensus: all methods NA gives NA consensus and 0 confidence", {
@@ -178,6 +195,7 @@ test_that("regime_consensus: all methods NA gives NA consensus and 0 confidence"
   result <- regime_consensus(df, method_cols = c("regime_mad", "regime_cpt"))
   expect_true(is.na(result$regime_consensus))
   expect_equal(result$regime_confidence, 0)
+  expect_equal(result$regime_n_votes, 0)
 })
 
 test_that("regime_consensus: one method NA, one present -- consensus follows the present vote", {
@@ -188,6 +206,10 @@ test_that("regime_consensus: one method NA, one present -- consensus follows the
   result <- regime_consensus(df, method_cols = c("regime_mad", "regime_cpt"))
   expect_equal(result$regime_consensus, "medium")
   expect_equal(result$regime_confidence, 1.0)
+  # regime_n_votes distinguishes THIS case (1 method voted, confidence
+  # trivially 1.0) from genuine 2-method agreement -- see #32 finding 1's
+  # follow-up review. regime_shock_flag() relies on this distinction.
+  expect_equal(result$regime_n_votes, 1)
 })
 
 test_that("regime_consensus: below the 0.67 plan-doc threshold is flagged uncertain by disagreement", {
@@ -248,9 +270,10 @@ test_that("regime_consensus full output snapshot", {
 
 # ---- Tests: regime_shock_flag (#32 finding 1) ----
 
-test_that("regime_shock_flag: up transition with full confidence is a shock", {
+test_that("regime_shock_flag: up transition with full confidence and 2 votes is a shock", {
   result <- regime_shock_flag(
-    is_transition = TRUE, transition_direction = "up", regime_confidence = 1.0
+    is_transition = TRUE, transition_direction = "up",
+    regime_confidence = 1.0, regime_n_votes = 2, min_votes = 2
   )
   expect_true(result)
 })
@@ -262,44 +285,180 @@ test_that("regime_shock_flag: up transition on a 0.5-confidence tie is NOT a sho
   # vote could flip the "consensus" to "up" and raise a real alert. The
   # plan doc's own threshold (0.67) says this is exactly the uncertain case.
   result <- regime_shock_flag(
-    is_transition = TRUE, transition_direction = "up", regime_confidence = 0.5
+    is_transition = TRUE, transition_direction = "up",
+    regime_confidence = 0.5, regime_n_votes = 2, min_votes = 2
+  )
+  expect_false(result)
+})
+
+test_that("regime_shock_flag: full confidence but only 1 vote is NOT a shock", {
+  # Reproduces #32 finding 1's follow-up review directly: with only ONE
+  # method voting (the other is NA), regime_confidence is trivially 1.0 --
+  # the single vote agrees with itself. Gating on confidence alone let a
+  # lone method's "up" call through unchallenged, exactly the single-method
+  # alert failure mode this function exists to prevent. This case became
+  # MORE common once segment_mad_labels() started correctly returning NA
+  # for a degenerate segment split (previously it wrongly guessed "low").
+  result <- regime_shock_flag(
+    is_transition = TRUE, transition_direction = "up",
+    regime_confidence = 1.0, regime_n_votes = 1, min_votes = 2
   )
   expect_false(result)
 })
 
 test_that("regime_shock_flag: confidence exactly at the 0.67 threshold is a shock (inclusive)", {
   result <- regime_shock_flag(
-    is_transition = TRUE, transition_direction = "up", regime_confidence = 0.67
+    is_transition = TRUE, transition_direction = "up",
+    regime_confidence = 0.67, regime_n_votes = 2, min_votes = 2
   )
   expect_true(result)
 })
 
 test_that("regime_shock_flag: down transition is never a shock regardless of confidence", {
   result <- regime_shock_flag(
-    is_transition = TRUE, transition_direction = "down", regime_confidence = 1.0
+    is_transition = TRUE, transition_direction = "down",
+    regime_confidence = 1.0, regime_n_votes = 2, min_votes = 2
   )
   expect_false(result)
 })
 
 test_that("regime_shock_flag: no transition is never a shock", {
   result <- regime_shock_flag(
-    is_transition = FALSE, transition_direction = NA_character_, regime_confidence = 1.0
+    is_transition = FALSE, transition_direction = NA_character_,
+    regime_confidence = 1.0, regime_n_votes = 2, min_votes = 2
   )
   expect_false(result)
 })
 
 test_that("regime_shock_flag: NA confidence is treated as 0 (never a shock)", {
   result <- regime_shock_flag(
-    is_transition = TRUE, transition_direction = "up", regime_confidence = NA_real_
+    is_transition = TRUE, transition_direction = "up",
+    regime_confidence = NA_real_, regime_n_votes = 2, min_votes = 2
+  )
+  expect_false(result)
+})
+
+test_that("regime_shock_flag: NA n_votes is treated as 0 (never a shock)", {
+  result <- regime_shock_flag(
+    is_transition = TRUE, transition_direction = "up",
+    regime_confidence = 1.0, regime_n_votes = NA_integer_, min_votes = 2
   )
   expect_false(result)
 })
 
 test_that("regime_shock_flag: vectorised across multiple tokens", {
   result <- regime_shock_flag(
-    is_transition = c(TRUE, TRUE, TRUE, FALSE),
-    transition_direction = c("up", "up", "down", NA_character_),
-    regime_confidence = c(1.0, 0.5, 1.0, NA_real_)
+    is_transition = c(TRUE, TRUE, TRUE, FALSE, TRUE),
+    transition_direction = c("up", "up", "down", NA_character_, "up"),
+    regime_confidence = c(1.0, 0.5, 1.0, NA_real_, 1.0),
+    regime_n_votes = c(2, 2, 2, NA_integer_, 1), min_votes = 2
   )
-  expect_equal(result, c(TRUE, FALSE, FALSE, FALSE))
+  expect_equal(result, c(TRUE, FALSE, FALSE, FALSE, FALSE))
+})
+
+test_that("regime_shock_flag: min_votes has no default (caller must derive it from method_cols)", {
+  # #36 finding 1: a literal default of 2 silently diverged from the
+  # configured method count once a 3rd method shipped. One home per value:
+  # _targets.R derives min_votes from the same constant as method_cols.
+  expect_error(
+    regime_shock_flag(
+      is_transition = TRUE, transition_direction = "up",
+      regime_confidence = 1.0, regime_n_votes = 2
+    ),
+    "min_votes"
+  )
+})
+
+test_that("regime_shock_flag: min_votes = 3 rejects a 2-vote up transition", {
+  result <- regime_shock_flag(
+    is_transition = TRUE, transition_direction = "up",
+    regime_confidence = 1.0, regime_n_votes = 2, min_votes = 3
+  )
+  expect_false(result)
+})
+
+# ---- Tests: regime_shock_indeterminate_flag (#36 finding 2) ----
+
+test_that("regime_shock_indeterminate_flag: up transition with too few votes is indeterminate", {
+  result <- regime_shock_indeterminate_flag(
+    is_transition = TRUE, transition_direction = "up",
+    regime_n_votes = 1, min_votes = 2
+  )
+  expect_true(result)
+})
+
+test_that("regime_shock_indeterminate_flag: enough votes is determinate (not flagged)", {
+  result <- regime_shock_indeterminate_flag(
+    is_transition = TRUE, transition_direction = "up",
+    regime_n_votes = 2, min_votes = 2
+  )
+  expect_false(result)
+})
+
+test_that("regime_shock_indeterminate_flag: non-up or non-transition rows are never indeterminate", {
+  result <- regime_shock_indeterminate_flag(
+    is_transition = c(TRUE, FALSE, NA),
+    transition_direction = c("down", NA_character_, "up"),
+    regime_n_votes = c(1, 1, 1), min_votes = 2
+  )
+  expect_equal(result, c(FALSE, FALSE, FALSE))
+})
+
+test_that("regime_shock_indeterminate_flag: NA votes count as 0 and are NA-safe", {
+  result <- regime_shock_indeterminate_flag(
+    is_transition = c(TRUE, NA, TRUE),
+    transition_direction = c("up", "up", NA_character_),
+    regime_n_votes = c(NA_integer_, NA_integer_, NA_integer_), min_votes = 2
+  )
+  expect_equal(result, c(TRUE, FALSE, FALSE))
+})
+
+test_that("regime_shock_flag and regime_shock_indeterminate_flag are mutually exclusive", {
+  is_tr <- c(TRUE, TRUE, TRUE, FALSE)
+  dir <- c("up", "up", "up", NA_character_)
+  votes <- c(2, 1, 0, 2)
+  shock <- regime_shock_flag(is_tr, dir, regime_confidence = 1,
+                             regime_n_votes = votes, min_votes = 2)
+  indet <- regime_shock_indeterminate_flag(is_tr, dir,
+                                           regime_n_votes = votes, min_votes = 2)
+  expect_equal(shock, c(TRUE, FALSE, FALSE, FALSE))
+  expect_equal(indet, c(FALSE, TRUE, TRUE, FALSE))
+})
+
+# ---- Integration: consensus -> transitions -> latest (#36 finding 3) ----
+
+test_that("regime_n_votes survives regime_consensus -> regime_transitions -> regime_latest", {
+  t0 <- as.POSIXct("2026-09-20 00:00:00", tz = "UTC")
+  ts <- t0 + as.difftime(0:2, units = "days")
+  df <- tibble::tibble(
+    token = rep(c("SOL", "JUP"), each = 3),
+    fetched_at = rep(ts, 2),
+    regime_mad = c("low", "low", "high", "low", "low", "high"),
+    # SOL: both methods vote throughout. JUP: cpt never votes.
+    regime_cpt = c("low", "low", "high", NA, NA, NA)
+  )
+  cols <- c("regime_mad", "regime_cpt")
+  latest <- df |>
+    regime_consensus(method_cols = cols) |>
+    regime_transitions(regime_col = "regime_consensus") |>
+    regime_latest(regime_col = "regime_consensus")
+
+  expect_true("regime_n_votes" %in% names(latest))
+  latest <- latest[order(latest$token), ]
+  expect_equal(latest$token, c("JUP", "SOL"))
+  expect_equal(latest$regime_n_votes, c(1, 2))
+  expect_equal(latest$transition_direction, c("up", "up"))
+
+  # The gate then separates the genuine shock from the unassessable one.
+  shock <- regime_shock_flag(
+    latest$is_transition, latest$transition_direction,
+    latest$regime_confidence, latest$regime_n_votes,
+    min_votes = length(cols)
+  )
+  indet <- regime_shock_indeterminate_flag(
+    latest$is_transition, latest$transition_direction,
+    latest$regime_n_votes, min_votes = length(cols)
+  )
+  expect_equal(shock, c(FALSE, TRUE))
+  expect_equal(indet, c(TRUE, FALSE))
 })
