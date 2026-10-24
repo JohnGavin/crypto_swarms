@@ -267,7 +267,7 @@ regime_transitions <- function(regime_df, regime_col = "regime_mad") {
 #'   pass "regime_consensus".
 #' @return data.frame: token, <regime_col>, is_transition, transition_direction
 #'   (plus regime_confidence/regime_n_votes when present in the input,
-#'   Phase R2 -- see #32 finding 1 on why regime_n_votes must travel
+#'   Phase R2 -- see #32 finding 1 on why regime_n_votes must be carried
 #'   alongside regime_confidence, not be dropped along the way)
 regime_latest <- function(regime_with_transitions, regime_col = "regime_mad") {
   out <- regime_with_transitions |>

@@ -103,14 +103,14 @@ docker run --rm \
 - Writable mount only on output dir
 - Memory limit prevents runaway processes
 
-**When triggered:** the private workload moves to `crypto_swarms_private` (see #8), which runs inside the container. This public repo stays unchanged.
+**When triggered:** the private workload moves to a private sibling repo (see #8), which runs inside the container. This public repo stays unchanged.
 
 ## Future Repo Split
 
 When strategy logic or personal data enters the picture, split into:
 
 - `crypto_swarms` (this repo, public) — infrastructure, generic checks, transports
-- `crypto_swarms_private` (future, private) — strategy, wallets, recipients, positions
+- a private sibling repo (future) — strategy, wallets, recipients, positions
 
 ### How the two repos relate
 

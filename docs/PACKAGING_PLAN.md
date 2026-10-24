@@ -3,7 +3,7 @@
 ## Why
 
 When personal strategy/wallet logic is added, a private sibling repo
-(`crypto_swarms_private`) will need to depend on this one. The cleanest way
+will need to depend on this one. The cleanest way
 is to make this repo a proper Python package that the private repo imports,
 rather than copy-pasting code or using git submodules.
 
@@ -131,7 +131,7 @@ other people want it.
 ### Phase E: Update private sibling to consume
 
 ```toml
-# crypto_swarms_private/pyproject.toml
+# <private-sibling>/pyproject.toml
 dependencies = [
     "crypto_swarms @ git+https://github.com/JohnGavin/crypto_swarms@main",
     # private-only deps here
@@ -139,7 +139,7 @@ dependencies = [
 ```
 
 ```python
-# crypto_swarms_private/src/crypto_swarms_private/__init__.py
+# <private-sibling>/src/<private_sibling>/__init__.py
 from crypto_swarms.fetch import fetch_jupiter
 from crypto_swarms.alerts import build_agent_context, send_email_alert
 
