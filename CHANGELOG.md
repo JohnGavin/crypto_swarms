@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-24
+
+### Changed
+- **Private sibling repo no longer named in public files.** `SECURITY.md`, `docs/PACKAGING_PLAN.md` and this changelog now say "a private sibling repo" instead of its name, which is on the owner's private-terms list. A comment in `R/analysis_functions.R` was reworded to avoid a false positive from the same scanner. Earlier commits still contain the name; history is not rewritten.
+
 ## 2026-10-22
 
 ### Changed
@@ -144,7 +149,7 @@
 - **GHA runs both scanners** on every push so PRs can't bypass local hooks
 - **Claude CLI integration** (`call_claude_cli()`) — uses Max subscription via `claude -p`, zero API cost
 - **Packaging plan** (`docs/PACKAGING_PLAN.md`) documented for future private-repo split
-- **Issue #8** raised to track future `crypto_swarms_private` sibling repo
+- **Issue #8** raised to track a future private sibling repo
 - **Analyze alerts helper** (`scripts/analyze_alerts.sh`) for manual/scheduled Claude Code analysis
 
 ### Failed Approaches
