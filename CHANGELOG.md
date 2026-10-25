@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-25
+
+Session 2026-10-22 to 2026-10-25 (privacy review after an unsolicited email cited PR #34 and a review job of this repo).
+
+### Completed
+- Merged PR #35 (regime vote gate, closes #36) and PR #37 (private sibling repo no longer named in public files, see the 2026-10-24 entry).
+- Removed the private sibling repo's name from the body of [#8](https://github.com/JohnGavin/crypto_swarms/issues/8); the owner deleted the original version from its edit history. No current file, issue or edit-history version names it; older commits still do.
+- Closed stale PR #16 (its branch is kept); deleted the merged feature branches and worktrees for PRs #28, #30, #35 and #37.
+- Full-history private-data scan of this repo (433/433 commits, 273 findings). All real findings were fixed by PR #37. The rest are false positives: postcode and phone-number patterns matching bytes inside committed parquet files of public price and NFT-floor data.
+- Commit author email switched to GitHub's noreply address for future commits.
+- Scanner and audit follow-ups filed upstream in the llm repo: [llm#1514](https://github.com/JohnGavin/llm/issues/1514) (scheduled history audit times out before reaching later repos), [llm#1516](https://github.com/JohnGavin/llm/issues/1516) (private terms that are ordinary English words give false positives), [llm#1517](https://github.com/JohnGavin/llm/issues/1517) (the scanner silently scans the llm repo when `REPO_ROOT` is unset).
+
+### Failed Approaches
+- Ran `private_data_scan.sh --full-history` from inside a mirror of this repo without `REPO_ROOT`. It scanned the llm repo instead (5227 commits) and its output did not say so. Workaround: always pass `REPO_ROOT=<repo>`; fix tracked in llm#1517.
+- Scanning each changed line separately to find which word matched a private term took over 10 minutes and was stopped. Bisecting the list of unique words found it in a few runs.
+
+### Known Limitations
+- History is not rewritten, so earlier commits still contain the private sibling repo's name.
+- Five roborev reviews rated high are still open (jobs 13688, 13722, 13724, 13741, 13820), and the review backlog is growing faster than reviews complete.
+- CI does not run on pull requests here (`scheduled-run.yml` has no `pull_request` trigger), so every PR merge needs an explicit owner "merge".
+
 ## 2026-10-24
 
 ### Changed
