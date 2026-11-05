@@ -11,6 +11,11 @@ on:
 permissions:
   contents: write  # to commit accumulated price_history.csv
 
+concurrency:
+  # Serialise runs so two jobs never race to push price history to main.
+  group: scheduled-crypto-pipeline
+  cancel-in-progress: false
+
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
@@ -65,6 +70,13 @@ jobs:
           # Force-add since data/*.parquet is gitignored locally
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # A re-run reuses its original (old) commit; pushing from it is rejected.
+          # Skip when this checkout is behind origin/main (a newer run already pushed).
+          git fetch origin main
+          if ! git merge-base --is-ancestor FETCH_HEAD HEAD; then
+            echo "::warning::Checkout is behind origin/main (stale re-run?); skipping price-history commit"
+            exit 0
+          fi
           git add -f data/price_history.parquet 2>/dev/null || true
           git diff --cached --quiet || git commit -m "chore: append price history (run #${{ github.run_number }})"
           git push
