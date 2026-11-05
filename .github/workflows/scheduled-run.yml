@@ -42,6 +42,21 @@ jobs:
         with:
           name: rstats-on-nix
 
+      - name: Build Nix dev shell (retry on transient cache errors)
+        run: |
+          # cache.nixos.org occasionally resets connections mid-download
+          # (seen on run 466 attempt 1). Retry the shell realisation; a
+          # persistent failure still fails the step.
+          for attempt in 1 2 3; do
+            if nix develop --command true; then
+              exit 0
+            fi
+            echo "::warning::nix develop failed (attempt ${attempt}/3); retrying in 30s"
+            sleep 30
+          done
+          echo "::error::nix develop failed after 3 attempts"
+          exit 1
+
       - name: Fetch token prices (outside sandbox - needs network)
         run: nix develop --command python3 scripts/fetch_prices.py
 
