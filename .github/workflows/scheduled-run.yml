@@ -51,8 +51,10 @@ jobs:
             if nix develop --command true; then
               exit 0
             fi
-            echo "::warning::nix develop failed (attempt ${attempt}/3); retrying in 30s"
-            sleep 30
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::nix develop failed (attempt ${attempt}/3); retrying in 30s"
+              sleep 30
+            fi
           done
           echo "::error::nix develop failed after 3 attempts"
           exit 1
