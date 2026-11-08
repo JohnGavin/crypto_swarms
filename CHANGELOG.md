@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-11-08
+
+### Completed
+- Ported the alert-noise tuning from the unmerged branch `feat/cc-20260920-121956` ([#40](https://github.com/JohnGavin/crypto_swarms/issues/40)) onto current `main`. Price-anomaly and liquidity z thresholds 3 -> 6; liquidity-drop 50% -> 75%; price alerts and `bb_break` also need a >= 10% deviation from the 7d median (`MIN_MOVE_PCT`, `material_move()`); `bb_break` gets the same non-trivial-MAD gate as `price_anomaly`. Depeg thresholds are unchanged. `docs/local/` added to `.gitignore`.
+- The regime-shock gate and the alert reason labels from that branch were already on `main` (PR #35, PR #34) and were not re-applied.
+- Six tests added for `material_move()` and the new gating.
+
+### Accuracy / Metrics
+- Replay of the last 30 days of `data/price_history.parquet` (60 snapshots, 16 tokens), old vs new logic: triggers 144 -> 36; price anomaly 72 -> 3; band break 83 -> 21; liquidity 101 -> 21; depeg 0 -> 0; snapshots with at least one alert 45 -> 22. 108 alerts removed, 0 added. The replay leaves out the regime-shock trigger.
+- Tests: all files pass (`NOT_CRAN=true Rscript tests/run_tests.R` inside `nix develop`). With `MIN_MOVE_PCT` set to 0 the new `material_move` test fails, so it can go red.
+
+### Known Limitations
+- The replay uses every earlier snapshot as the 7d/30d window for each snapshot, which is how the pipeline computes it, but it is not a replay of the emails actually sent. Real alert volume should be checked after a few days of emails.
+- With `MIN_MOVE_PCT` at 0 the test run ended in an R segfault while reporting the failure, not a clean failure message.
+
 ## 2026-10-25
 
 Session 2026-10-22 to 2026-10-25 (privacy review after an unsolicited email cited [PR #34](https://github.com/JohnGavin/crypto_swarms/pull/34) and a review job of this repo).

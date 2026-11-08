@@ -259,3 +259,103 @@ test_that("regime_latest snapshot", {
   )
   expect_snapshot(regime_latest(df))
 })
+
+# ---- Tests: materiality and alert gating (material_move, compute_alerts) ----
+
+# Symmetric history: half the points sit at center - half_spread, half at
+# center + half_spread. Median = center and mad() = 1.4826 * half_spread exactly.
+# Points are 6 h apart, ending at a fixed reference time (deterministic).
+make_symmetric_history <- function(token, center, half_spread, n = 20, liquidity = 1e8) {
+  ref <- as.POSIXct("2026-11-01 12:00:00", tz = "UTC")
+  tibble::tibble(
+    token = token,
+    source = "test",
+    price_usd = center + rep(c(-half_spread, half_spread), length.out = n),
+    price_change_24h = 0,
+    liquidity = liquidity,
+    block_id = seq_len(n),
+    fetched_at = ref - (n - seq_len(n)) * 6 * 3600
+  )
+}
+
+# Build the 7d/30d summaries and 7d Bollinger bands that compute_alerts expects.
+build_alert_inputs <- function(hist) {
+  hist <- prepare_history(hist)
+  s7  <- compute_window_summary(hist, 7,  "7d")
+  s30 <- compute_window_summary(hist, 30, "30d")
+  list(s7 = s7, s30 = s30, bb = compute_bollinger(s7, "7d"))
+}
+
+test_that("material_move is TRUE at exactly MIN_MOVE_PCT and FALSE just below", {
+  # 8 / 80 is exactly 0.1 in double precision, the same value as MIN_MOVE_PCT
+  expect_true(material_move(88, 80))
+  expect_true(material_move(72, 80))     # 10% downside move, exactly at the floor
+  expect_false(material_move(87.99, 80))
+  expect_false(material_move(72.01, 80))
+})
+
+test_that("material_move is NA-safe and returns a plain logical", {
+  expect_identical(material_move(88, NA_real_), FALSE)  # NA median
+  expect_identical(material_move(88, 0), FALSE)         # zero median
+  expect_identical(material_move(88, -80), FALSE)       # negative median
+  expect_identical(material_move(c(88, 88), c(NA, 80)), c(FALSE, TRUE))
+})
+
+test_that("compute_alerts: robust z above threshold but sub-10% move is not an anomaly", {
+  inp <- build_alert_inputs(make_symmetric_history("SOL", center = 80, half_spread = 0.5))
+  # About 6.5 MADs from the 7d median, but only about 6% away from it
+  price <- inp$s7$median_7d + 6.5 * inp$s7$mad_7d
+  prices <- tibble::tibble(token = "SOL", price_usd = price, liquidity = 1e8)
+  result <- compute_alerts(prices, inp$s7, inp$s30, inp$bb)
+
+  # Positive precondition: the z-score really exceeds the threshold, so the FALSEs are not vacuous
+  expect_gt(result$robust_zscore, Z_PRICE_ALERT)
+  expect_lt(abs(price - 80) / 80, MIN_MOVE_PCT)
+  expect_false(result$price_anomaly)
+  expect_false(result$bb_break)
+})
+
+test_that("compute_alerts: a >= 20% move with large robust z is a price anomaly", {
+  inp <- build_alert_inputs(make_symmetric_history("SOL", center = 80, half_spread = 0.5))
+  prices <- tibble::tibble(token = "SOL", price_usd = 96, liquidity = 1e8)  # +20%
+  result <- compute_alerts(prices, inp$s7, inp$s30, inp$bb)
+
+  expect_gt(result$robust_zscore, Z_PRICE_ALERT)
+  expect_true(result$price_anomaly)
+  expect_true(result$bb_break)
+})
+
+test_that("compute_alerts: stablecoin depeg fires even when material_move is FALSE", {
+  inp <- build_alert_inputs(
+    make_symmetric_history("USDC", center = 1.0, half_spread = 0.0001, liquidity = 4e8)
+  )
+  prices <- tibble::tibble(token = "USDC", price_usd = 0.990, liquidity = 4e8)
+
+  # The move is 1%, so the materiality floor would block it for a non-stablecoin
+  expect_false(material_move(0.990, inp$s7$median_7d))
+  result <- compute_alerts(prices, inp$s7, inp$s30, inp$bb)
+
+  expect_true(result$depeg_alert)
+  expect_true(result$trigger_alert)
+  expect_false(result$price_anomaly)
+})
+
+test_that("bb_break is FALSE on a near-flat window even when price is outside the band", {
+  flat <- build_alert_inputs(make_symmetric_history("SOL", center = 80, half_spread = 0.2))
+  prices <- tibble::tibble(token = "SOL", price_usd = 88, liquidity = 1e8)  # +10%
+
+  # Preconditions: the window is near-flat, the price is outside the band, and the move is material
+  expect_lt(flat$s7$mad_7d / flat$s7$median_7d, MIN_REL_MAD)
+  expect_gt(88, flat$bb$bb_upper_7d)
+  expect_true(material_move(88, flat$s7$median_7d))
+
+  result <- compute_alerts(prices, flat$s7, flat$s30, flat$bb)
+  expect_true(result$bb_valid_7d)
+  expect_false(result$bb_break)
+  expect_false(result$price_anomaly)
+
+  # Positive control: same price and move, but a window with real dispersion fires
+  wide <- build_alert_inputs(make_symmetric_history("SOL", center = 80, half_spread = 0.5))
+  result_wide <- compute_alerts(prices, wide$s7, wide$s30, wide$bb)
+  expect_true(result_wide$bb_break)
+})
