@@ -33,6 +33,7 @@ data/portfolio*.csv
 data/positions*.csv
 data/trades*.csv
 data/pnl*.csv
+docs/local/
 __pycache__/
 .pytest_cache/
 

@@ -24,9 +24,12 @@ USE_DUCKPLYR <- FALSE
 # ~/.claude/rules/composite-alert-scoring.md for rationale.
 MIN_OBS_ROBUST <- 10     # Minimum observations before computing MAD-based z-scores
 MIN_REL_MAD    <- 0.005  # mad_7d / median_7d must exceed this (excludes near-flat windows)
-Z_PRICE_ALERT  <- 3.0    # Robust z above this = price anomaly
-Z_LIQ_DROP     <- 3.0    # Liquidity drop in MADs
-LIQ_MIN_PCT    <- 0.50   # OR liquidity drop > 50% from median
+Z_PRICE_ALERT  <- 6.0    # Robust z above this = price anomaly (was 3.0; raised to cut alert volume)
+Z_LIQ_DROP     <- 6.0    # Liquidity drop in MADs (was 3.0)
+LIQ_MIN_PCT    <- 0.75   # OR liquidity drop > 75% from median (was 50%)
+MIN_MOVE_PCT   <- 0.10   # Price alerts also need >= 10% deviation from the 7d median
+                         # (materiality floor: a tiny-MAD token can be many MADs from
+                         # its median on a trivial move). Depeg is NOT subject to this.
 DEPEG_THRESHOLD <- 0.005 # Stablecoin depeg threshold (0.5% from $1)
 STABLECOINS    <- c("USDC", "USDT")
 
@@ -113,6 +116,13 @@ compute_bollinger <- function(summary_df, suffix = "7d", k = BOLLINGER_K) {
 
 # ---- Composite alert computation ----
 
+#' TRUE where price sits at least MIN_MOVE_PCT away from its 7d median.
+#' NA-safe: a missing or non-positive median gives FALSE (cannot show materiality).
+material_move <- function(price, median_ref) {
+  !is.na(median_ref) & median_ref > 0 &
+    abs(price - median_ref) / median_ref >= MIN_MOVE_PCT
+}
+
 #' Combine price + history summaries + Bollinger into the final alert table.
 compute_alerts <- function(prices_df, summary_7d, summary_30d, bollinger_7d) {
   prices_df |>
@@ -135,10 +145,15 @@ compute_alerts <- function(prices_df, summary_7d, summary_30d, bollinger_7d) {
         abs(price_usd - median_7d) / mad_7d,
         NA_real_
       ),
-      price_anomaly = !is.na(robust_zscore) & robust_zscore > Z_PRICE_ALERT,
+      price_anomaly = !is.na(robust_zscore) & robust_zscore > Z_PRICE_ALERT &
+        material_move(price_usd, median_7d),
 
-      # Bollinger band break (uses robust bands)
-      bb_break = !is.na(bb_valid_7d) & bb_valid_7d & (
+      # Bollinger band break (uses robust bands). Previously ungated by the
+      # relative-MAD check that price_anomaly has, so a near-flat window with a tiny
+      # MAD let it fire on trivial moves. Now needs the same non-trivial-MAD gate and
+      # the materiality floor.
+      bb_break = !is.na(bb_valid_7d) & bb_valid_7d & nontrivial_price_mad &
+        material_move(price_usd, median_7d) & (
         (!is.na(bb_upper_7d) & price_usd > bb_upper_7d) |
         (!is.na(bb_lower_7d) & price_usd < bb_lower_7d)
       ),
