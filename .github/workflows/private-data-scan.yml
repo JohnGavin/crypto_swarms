@@ -1,0 +1,58 @@
+# private-data-scan -- CI gate for PII entering this PUBLIC repo.
+# Installed by JohnGavin/llm .claude/scripts/public_repo_pii_ci_rollout.sh
+# (llm#1366). Layer 4 of the private-data-scanning defence: server-side,
+# unbypassable by --no-verify or an uninstalled local hook.
+#
+# The scanner is NOT vendored: it is fetched from JohnGavin/llm at a pinned
+# commit and its sha256 is verified before it runs (fails closed). To bump
+# the pin, change both values below together.
+#
+# Runs with --no-denylist by design: this public repo's runner is never
+# handed personal PII literals. Generic E.164 / UK-postcode / IBAN pattern
+# coverage only; the run summary says so.
+
+name: private-data-scan
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  private-data-scan:
+    name: private-data-scan
+    runs-on: ubuntu-latest
+    env:
+      SCANNER_SHA: 1fa0f8118477ad2da10fcc9b2ba9a681f1fc88f0
+      SCANNER_SHA256: c9de57391cd9a941f8e727c4453f35e0555003585dc36b3cea925557fb5802c2
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Install pdftotext (selftest exits 3 without it)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq poppler-utils
+
+      - name: Fetch scanner at pinned SHA and verify its hash
+        run: |
+          mkdir -p "$RUNNER_TEMP/pds"
+          curl -fsSL "https://raw.githubusercontent.com/JohnGavin/llm/${SCANNER_SHA}/.claude/scripts/private_data_scan.sh" -o "$RUNNER_TEMP/pds/private_data_scan.sh"
+          echo "${SCANNER_SHA256}  $RUNNER_TEMP/pds/private_data_scan.sh" | sha256sum -c -
+
+      - name: Self-check -- prove the detector can fail before trusting it
+        run: bash "$RUNNER_TEMP/pds/private_data_scan.sh" --selftest
+
+      - name: Scan every commit in this PR for PII (generic patterns; no deny-list on CI)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO_ROOT: ${{ github.workspace }}
+        run: |
+          echo "::notice::private-data-scan runs with --no-denylist on CI (generic pattern coverage only)."
+          bash "$RUNNER_TEMP/pds/private_data_scan.sh" --range "$BASE_SHA" "$HEAD_SHA" --no-denylist
