@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-11-16
+
+### Decided (issue #39: T template leftovers in `flake.nix`)
+- None of the three items can be switched off from `tproject.toml` in T 0.55.3. All are written unconditionally by `src/package_manager/nix_generator.ml`:
+  - Julia toolchain (`julia-lts` with JSON, `tlang-julia-path`, `JULIA_LOAD_PATH`): generator lines 377-423.
+  - `deepdiff` in the Python env: line 369, skipped only with the `uv` Python resolver, which would be a larger change than the cost it saves.
+  - Generic `description`: line 216 builds it from `[project] name` and ignores `[project] description`.
+- Decision for now: option 3, accepted as a known cost. `flake.nix` stays as `t update` writes it, because hand edits are overwritten on the next update. Reporting the template behaviour upstream to tlang (option 2) needs the owner's approval before anything is posted.
+
+## 2026-09-30
+
+### Fixed (issue #32, PR #34)
+- `regime_shock` / `trigger_alert` now fire only when `regime_confidence >= 0.67` (new `regime_shock_flag()`). With two methods, every disagreement ties at confidence 0.5, so one method's vote alone used to raise a real alert. `regime_consensus()` itself is unchanged.
+- New `segment_mad_labels()` replaces the inline labelling in `regime_changepoint()`. A single PELT segment now returns NA instead of always "low". MAD is computed once per segment instead of once per observation.
+- `src/report.qmd` progression-ladder caption is computed from `progression_ladder$status` instead of a hard-coded string.
+
+### Known
+- A full-history PELT refit can relabel past observations between runs. This is documented, not fixed.
+
+### Verified (`nix develop`, at merge)
+- testthat 53 tests / 81 expectations, 0 failed; pytest 58 passed; `t run src/pipeline.t` 6/6 nodes, 0 report errors.
+
 ## 2026-09-27
 
 ### Changed
